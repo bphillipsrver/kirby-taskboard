@@ -68,12 +68,22 @@ async function initDatabase() {
                 assignee TEXT DEFAULT 'Kirby',
                 notes TEXT,
                 status TEXT DEFAULT 'todo',
+                position INTEGER DEFAULT 0,
                 due_date DATE,
                 attachment TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        
+        // Add position column if it doesn't exist (migration)
+        try {
+            await pool.query('ALTER TABLE tasks ADD COLUMN position INTEGER DEFAULT 0');
+            console.log('✅ Added position column');
+        } catch (err) {
+            // Column already exists
+        }
+        
         console.log('✅ Database table initialized');
         
         // Log task count
@@ -118,7 +128,7 @@ app.get('/api/health', async (req, res) => {
 // GET all tasks
 app.get('/api/tasks', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM tasks ORDER BY created_at DESC');
+        const result = await pool.query('SELECT * FROM tasks ORDER BY status, position ASC, created_at DESC');
         res.json(result.rows);
     } catch (err) {
         console.error('Error fetching tasks:', err);
@@ -151,14 +161,18 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
     console.log(`📝 Creating task: "${title.substring(0, 50)}..."`);
     
     try {
+        // Get max position for this status to add to end
+        const posResult = await pool.query('SELECT COALESCE(MAX(position), 0) + 1 as new_pos FROM tasks WHERE status = $1', [status]);
+        const newPosition = posResult.rows[0].new_pos;
+        
         const result = await pool.query(
-            `INSERT INTO tasks (title, priority, assignee, notes, status, due_date, attachment) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7) 
+            `INSERT INTO tasks (title, priority, assignee, notes, status, position, due_date, attachment) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
              RETURNING *`,
-            [title, priority, assignee, notes, status, due_date, attachment]
+            [title, priority, assignee, notes, status, newPosition, due_date, attachment]
         );
         
-        console.log(`✅ Task created with ID: ${result.rows[0].id}`);
+        console.log(`✅ Task created with ID: ${result.rows[0].id} at position ${newPosition}`);
         res.status(201).json(result.rows[0]);
     } catch (err) {
         console.error('❌ Create error:', err);
@@ -221,6 +235,39 @@ app.delete('/api/tasks/:id', requireAuth, async (req, res) => {
     } catch (err) {
         console.error('❌ Delete error:', err);
         res.status(500).json({ error: 'Failed to delete task' });
+    }
+});
+
+// REORDER tasks within a status
+app.post('/api/tasks/reorder', requireAuth, async (req, res) => {
+    const { tasks } = req.body;
+    
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+        return res.status(400).json({ error: 'Tasks array required' });
+    }
+    
+    console.log(`🔄 Reordering ${tasks.length} tasks`);
+    
+    try {
+        // Update positions in a transaction
+        await pool.query('BEGIN');
+        
+        for (let i = 0; i < tasks.length; i++) {
+            const { id, position, status } = tasks[i];
+            await pool.query(
+                'UPDATE tasks SET position = $1, status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+                [position, status, id]
+            );
+        }
+        
+        await pool.query('COMMIT');
+        
+        console.log('✅ Tasks reordered successfully');
+        res.json({ message: 'Tasks reordered successfully', count: tasks.length });
+    } catch (err) {
+        await pool.query('ROLLBACK');
+        console.error('❌ Reorder error:', err);
+        res.status(500).json({ error: 'Failed to reorder tasks' });
     }
 });
 
