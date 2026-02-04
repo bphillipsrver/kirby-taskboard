@@ -7,7 +7,7 @@ services:
     plan: free
     envVars:
       - key: API_KEY
-        generateValue: true
+        value: kirby-taskboard-2025-elvis
       - key: NODE_ENV
         value: production
       - key: DATABASE_PATH
