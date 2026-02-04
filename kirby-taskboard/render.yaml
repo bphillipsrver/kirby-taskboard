@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: kirby-taskboard
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: API_KEY
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_PATH
+        value: /data/tasks.db
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
