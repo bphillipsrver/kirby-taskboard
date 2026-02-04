@@ -2,16 +2,45 @@ const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const path = require('path');
+const multer = require('multer');
+const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY || 'kirby-taskboard-2025-elvis';
 
+// Ensure uploads directory exists
+const uploadsDir = process.env.DATABASE_PATH ? path.join(path.dirname(process.env.DATABASE_PATH), 'uploads') : './uploads';
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Multer configuration for file uploads
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadsDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + '-' + file.originalname);
+    }
+});
+
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+    fileFilter: (req, file, cb) => {
+        // Accept all file types for now
+        cb(null, true);
+    }
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
+app.use('/uploads', express.static(uploadsDir));
 
 // Initialize SQLite database
 const db = new sqlite3.Database(process.env.DATABASE_PATH || './tasks.db');
@@ -25,9 +54,25 @@ db.serialize(() => {
         assignee TEXT DEFAULT 'Kirby',
         notes TEXT,
         column TEXT DEFAULT 'todo',
+        due_date DATE,
+        attachment TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+    
+    // Migration: Add due_date column if it doesn't exist
+    db.run(`ALTER TABLE tasks ADD COLUMN due_date DATE`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {
+            console.error('Migration error:', err);
+        }
+    });
+    
+    // Migration: Add attachment column if it doesn't exist
+    db.run(`ALTER TABLE tasks ADD COLUMN attachment TEXT`, (err) => {
+        if (err && !err.message.includes('duplicate column')) {
+            console.error('Migration error:', err);
+        }
+    });
 });
 
 // API Key middleware
@@ -72,16 +117,16 @@ app.get('/api/tasks/:id', (req, res) => {
 
 // CREATE task (requires auth)
 app.post('/api/tasks', requireAuth, (req, res) => {
-    const { title, priority = 'medium', assignee = 'Kirby', notes = '', column = 'todo' } = req.body;
+    const { title, priority = 'medium', assignee = 'Kirby', notes = '', column = 'todo', due_date = null, attachment = null } = req.body;
     
     if (!title) {
         return res.status(400).json({ error: 'Title is required' });
     }
     
-    const sql = `INSERT INTO tasks (title, priority, assignee, notes, column) 
-                 VALUES (?, ?, ?, ?, ?)`;
+    const sql = `INSERT INTO tasks (title, priority, assignee, notes, column, due_date, attachment) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`;
     
-    db.run(sql, [title, priority, assignee, notes, column], function(err) {
+    db.run(sql, [title, priority, assignee, notes, column, due_date, attachment], function(err) {
         if (err) {
             console.error(err);
             return res.status(500).json({ error: 'Failed to create task' });
@@ -99,7 +144,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
 // UPDATE task (requires auth)
 app.put('/api/tasks/:id', requireAuth, (req, res) => {
     const { id } = req.params;
-    const { title, priority, assignee, notes, column } = req.body;
+    const { title, priority, assignee, notes, column, due_date, attachment } = req.body;
     
     // Build dynamic update query
     const updates = [];
@@ -110,6 +155,8 @@ app.put('/api/tasks/:id', requireAuth, (req, res) => {
     if (assignee !== undefined) { updates.push('assignee = ?'); values.push(assignee); }
     if (notes !== undefined) { updates.push('notes = ?'); values.push(notes); }
     if (column !== undefined) { updates.push('column = ?'); values.push(column); }
+    if (due_date !== undefined) { updates.push('due_date = ?'); values.push(due_date); }
+    if (attachment !== undefined) { updates.push('attachment = ?'); values.push(attachment); }
     
     if (updates.length === 0) {
         return res.status(400).json({ error: 'No fields to update' });
@@ -180,6 +227,22 @@ app.post('/api/tasks/reorder', requireAuth, (req, res) => {
     });
     
     res.json({ message: 'Tasks reordered', updated });
+});
+
+// File upload endpoint
+app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({ 
+        message: 'File uploaded successfully',
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        url: fileUrl,
+        size: req.file.size
+    });
 });
 
 // Serve frontend
