@@ -1266,78 +1266,61 @@
             const taskId = draggedTask.dataset.id;
             const oldStatus = draggedTask.dataset.status;
 
-            console.log(`Moving task ${taskId} from ${oldStatus} to ${newStatus}`);
+            console.log(`Drop: Task ${taskId} from ${oldStatus} to ${newStatus}`);
 
             if (!apiKey) {
-                showIndicator('🔑 API key required to move tasks', true);
+                showIndicator('🔑 API key required', true);
                 openSettings();
                 return;
             }
 
+            // Move the task element visually FIRST
+            const afterElement = getDragAfterElement(taskList, e.clientY);
+            if (afterElement) {
+                taskList.insertBefore(draggedTask, afterElement);
+            } else {
+                taskList.appendChild(draggedTask);
+            }
+            
+            // Update dataset
+            draggedTask.dataset.status = newStatus;
+
             try {
-                // Calculate position based on drop location
-                const afterElement = getDragAfterElement(taskList, e.clientY);
-                const siblings = Array.from(taskList.querySelectorAll('.task:not(.dragging)'));
-                let newPosition = 0;
+                // Update the moved task's status first
+                const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': apiKey
+                    },
+                    body: JSON.stringify({ status: newStatus })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to update task status');
+                }
+
+                // Reorder the target column
+                await reorderTasksInColumn(newStatus);
                 
-                if (afterElement) {
-                    // Dropped before another task
-                    const afterIndex = siblings.indexOf(afterElement);
-                    newPosition = afterIndex;
-                } else {
-                    // Dropped at the end
-                    newPosition = siblings.length;
-                }
-
-                // Move the task element visually
-                if (afterElement) {
-                    taskList.insertBefore(draggedTask, afterElement);
-                } else {
-                    taskList.appendChild(draggedTask);
-                }
-
-                // Update the task's dataset status
-                draggedTask.dataset.status = newStatus;
-
-                // If reordering within same column or moving to new column, we need to update all positions
-                if (oldStatus === newStatus) {
-                    // Reordering within same column
-                    await reorderTasksInColumn(newStatus);
-                } else {
-                    // Moving to different column
-                    const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-API-Key': apiKey
-                        },
-                        body: JSON.stringify({ status: newStatus, position: newPosition })
-                    });
-
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.error || 'Failed to move task');
-                    }
-
-                    // Reorder both columns
+                // If moved from different column, reorder old column too
+                if (oldStatus !== newStatus) {
                     await reorderTasksInColumn(oldStatus);
-                    await reorderTasksInColumn(newStatus);
                 }
                 
                 updateCounts();
                 showIndicator('✅ Task moved');
             } catch (error) {
-                console.error('Error moving task:', error);
+                console.error('Error:', error);
                 showIndicator('❌ ' + error.message, true);
-                // Reload to get correct order
-                loadTasks();
+                loadTasks(); // Reload to fix any issues
             }
         }
 
         function getDragAfterElement(container, y) {
             const draggableElements = [...container.querySelectorAll('.task:not(.dragging)')];
             
-            return draggableElements.reduce((closest, child) => {
+            const result = draggableElements.reduce((closest, child) => {
                 const box = child.getBoundingClientRect();
                 const offset = y - box.top - box.height / 2;
                 
@@ -1346,20 +1329,25 @@
                 } else {
                     return closest;
                 }
-            }, { offset: Number.NEGATIVE_INFINITY }).element;
+            }, { offset: Number.NEGATIVE_INFINITY });
+            
+            return result.element || null;
         }
 
         async function reorderTasksInColumn(status) {
             const taskList = document.getElementById(`${status}-list`);
+            if (!taskList) return;
+            
             const tasks = Array.from(taskList.querySelectorAll('.task'));
+            if (tasks.length === 0) return;
+            
+            console.log(`Reordering ${tasks.length} tasks in ${status}`);
             
             const reorderData = tasks.map((task, index) => ({
                 id: parseInt(task.dataset.id),
                 position: index,
                 status: status
             }));
-
-            if (reorderData.length === 0) return;
 
             const response = await fetch(`${API_BASE_URL}/api/tasks/reorder`, {
                 method: 'POST',
@@ -1371,8 +1359,11 @@
             });
 
             if (!response.ok) {
-                throw new Error('Failed to reorder tasks');
+                const err = await response.json();
+                throw new Error(err.error || 'Failed to reorder');
             }
+            
+            console.log('Reorder successful');
         }
 
         function updateCounts() {
