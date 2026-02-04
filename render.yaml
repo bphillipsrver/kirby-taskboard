@@ -10,5 +10,5 @@ services:
         value: kirby-taskboard-2025-elvis
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        value: postgresql://postgres:xrRKWsawso1@db.ckzezftoemljlepyywoj.supabase.co:5432/postgres
+      # IMPORTANT: Add DATABASE_URL in Render Dashboard Environment Variables
+      # Value: postgresql://postgres:xrRKWsawso1@db.ckzezftoemljlepyywoj.supabase.co:5432/postgres
