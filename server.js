@@ -13,6 +13,18 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY || 'kirby-taskboard-2025-elvis';
 
+// Initialize SQLite database path
+const dbPath = process.env.DATABASE_PATH || './tasks.db';
+
+// Log database info on startup
+console.log('🔍 Starting database diagnostics...');
+console.log('   Database path:', dbPath);
+console.log('   Database dir exists:', fs.existsSync(path.dirname(dbPath)));
+console.log('   Database file exists:', fs.existsSync(dbPath));
+if (fs.existsSync(dbPath)) {
+    console.log('   Database file size:', fs.statSync(dbPath).size, 'bytes');
+}
+
 // Ensure uploads directory exists
 const uploadsDir = process.env.DATABASE_PATH ? path.join(path.dirname(process.env.DATABASE_PATH), 'uploads') : './uploads';
 if (!fs.existsSync(uploadsDir)) {
@@ -45,12 +57,7 @@ app.use(express.json());
 app.use(express.static('public'));
 app.use('/uploads', express.static(uploadsDir));
 
-// Initialize SQLite database
-const dbPath = process.env.DATABASE_PATH || './tasks.db';
-console.log('📁 Database path:', dbPath);
-console.log('📂 Database directory exists:', fs.existsSync(path.dirname(dbPath)));
-console.log('📝 Database file exists:', fs.existsSync(dbPath));
-
+// Initialize SQLite database connection
 const db = new sqlite3.Database(dbPath);
 
 // Create tasks table if not exists
@@ -101,9 +108,25 @@ const requireAuth = (req, res, next) => {
     next();
 };
 
-// Health check
+// Health check with database diagnostics
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    const dbExists = fs.existsSync(dbPath);
+    const dbSize = dbExists ? fs.statSync(dbPath).size : 0;
+    
+    db.get('SELECT COUNT(*) as count FROM tasks', (err, row) => {
+        const taskCount = err ? 0 : row.count;
+        
+        res.json({ 
+            status: 'ok', 
+            timestamp: new Date().toISOString(),
+            database: {
+                path: dbPath,
+                exists: dbExists,
+                size: dbSize,
+                taskCount: taskCount
+            }
+        });
+    });
 });
 
 // GET all tasks
