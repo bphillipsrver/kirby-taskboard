@@ -893,6 +893,7 @@
             taskElement.className = 'task';
             taskElement.draggable = true;
             taskElement.dataset.id = task.id;
+            taskElement.dataset.status = task.status || 'todo';
 
             const assigneeEmoji = task.assignee === 'Elvis' ? '👤' : '🐶';
             const assigneeClass = task.assignee === 'Elvis' ? 'assignee-elvis' : 'assignee-kirby';
@@ -914,8 +915,11 @@
                                diffDays === 0 ? 'Due today' :
                                diffDays === 1 ? 'Due tomorrow' :
                                `Due in ${diffDays} days`;
+                
+                // Format the date nicely (YYYY-MM-DD)
+                const formattedDueDate = dueDate.toISOString().split('T')[0];
 
-                dueDateHtml = `<div class="task-due-date ${dueClass}">📅 ${dueText} (${task.due_date})</div>`;
+                dueDateHtml = `<div class="task-due-date ${dueClass}">📅 ${dueText}</div>`;
             }
 
             // Attachment display
@@ -1249,11 +1253,19 @@
             e.preventDefault();
             if (!draggedTask) return;
 
+            const column = e.target.closest('.column');
             const taskList = e.target.closest('.task-list');
-            if (!taskList) return;
+            if (!taskList || !column) return;
+
+            // Remove drag-over styling
+            document.querySelectorAll('.column').forEach(col => {
+                col.classList.remove('drag-over');
+            });
 
             const newStatus = taskList.id.replace('-list', '');
             const taskId = draggedTask.dataset.id;
+
+            console.log(`Moving task ${taskId} to ${newStatus}`);
 
             if (!apiKey) {
                 showIndicator('🔑 API key required to move tasks', true);
@@ -1271,14 +1283,22 @@
                     body: JSON.stringify({ status: newStatus })
                 });
 
-                if (!response.ok) throw new Error('Failed to move task');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to move task');
+                }
 
+                // Move the task element visually
                 taskList.appendChild(draggedTask);
+                
+                // Update the task's dataset status
+                draggedTask.dataset.status = newStatus;
+                
                 updateCounts();
                 showIndicator('✅ Task moved');
             } catch (error) {
                 console.error('Error moving task:', error);
-                showIndicator('❌ Failed to move task', true);
+                showIndicator('❌ ' + error.message, true);
             }
         }
 
