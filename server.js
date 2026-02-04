@@ -128,7 +128,20 @@ app.get('/api/health', async (req, res) => {
 // GET all tasks
 app.get('/api/tasks', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM tasks ORDER BY status, position ASC, created_at DESC');
+        // Custom sort order: todo -> ready -> inprogress -> done
+        const result = await pool.query(`
+            SELECT * FROM tasks 
+            ORDER BY 
+                CASE status 
+                    WHEN 'todo' THEN 1 
+                    WHEN 'ready' THEN 2 
+                    WHEN 'inprogress' THEN 3 
+                    WHEN 'done' THEN 4 
+                    ELSE 5 
+                END,
+                position ASC, 
+                created_at DESC
+        `);
         res.json(result.rows);
     } catch (err) {
         console.error('Error fetching tasks:', err);

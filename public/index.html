@@ -110,6 +110,7 @@
         }
 
         .todo .column-header { border-color: #ff6b6b; }
+        .ready .column-header { border-color: #3498db; }
         .inprogress .column-header { border-color: #feca57; }
         .done .column-header { border-color: #1dd1a1; }
 
@@ -547,6 +548,18 @@
             <div class="task-list" id="todo-list"></div>
         </div>
 
+        <div class="column ready" data-status="ready" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)" ondrop="drop(event)" ondragover="allowDrop(event)">
+            <div class="column-header">
+                <span class="column-title">
+                    <span class="emoji">🚀</span>
+                    Ready to Start
+                </span>
+                <span class="column-count" id="count-ready">0</span>
+            </div>
+            <button class="add-task-btn" onclick="openModal('ready')">+ Add Task</button>
+            <div class="task-list" id="ready-list"></div>
+        </div>
+
         <div class="column inprogress" data-status="inprogress" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)" ondrop="drop(event)" ondragover="allowDrop(event)">
             <div class="column-header">
                 <span class="column-title">
@@ -709,14 +722,18 @@
                 const tasks = await response.json();
 
                 // Clear existing tasks
-                ['todo', 'inprogress', 'done'].forEach(col => {
-                    document.getElementById(`${col}-list`).innerHTML = '';
+                ['todo', 'ready', 'inprogress', 'done'].forEach(col => {
+                    const listEl = document.getElementById(`${col}-list`);
+                    if (listEl) listEl.innerHTML = '';
                 });
 
                 // Add tasks to board
                 tasks.forEach(task => addTaskToBoard(task));
                 updateCounts();
                 updateSyncStatus(true);
+                
+                // Check for Kirby's tasks in Ready to Start
+                checkKirbyReadyTasks(tasks);
             } catch (error) {
                 console.error('Error loading tasks:', error);
                 updateSyncStatus(false);
@@ -1385,10 +1402,29 @@
         }
 
         function updateCounts() {
-            ['todo', 'inprogress', 'done'].forEach(column => {
-                const count = document.getElementById(`${column}-list`).children.length;
-                document.getElementById(`count-${column}`).textContent = count;
+            ['todo', 'ready', 'inprogress', 'done'].forEach(column => {
+                const listEl = document.getElementById(`${column}-list`);
+                if (listEl) {
+                    const count = listEl.children.length;
+                    const countEl = document.getElementById(`count-${column}`);
+                    if (countEl) {
+                        countEl.textContent = count;
+                    }
+                }
             });
+        }
+
+        // Check for Kirby's tasks in Ready to Start column
+        function checkKirbyReadyTasks(tasks) {
+            const kirbyReadyTasks = tasks.filter(t => 
+                t.status === 'ready' && 
+                (t.assignee === 'Kirby' || t.assignee === 'kirby')
+            );
+            
+            if (kirbyReadyTasks.length > 0) {
+                console.log(`📋 Kirby has ${kirbyReadyTasks.length} task(s) in Ready to Start:`);
+                kirbyReadyTasks.forEach(t => console.log(`  - ${t.title}`));
+            }
         }
 
         function showIndicator(message, isError = false) {
