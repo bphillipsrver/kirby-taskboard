@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
+const pdfParse = require('pdf-parse');
 require('dotenv').config();
 
 const app = express();
@@ -243,6 +244,33 @@ app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
         url: fileUrl,
         size: req.file.size
     });
+});
+
+// Parse PDF endpoint
+app.post('/api/parse-pdf', requireAuth, upload.single('file'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No PDF file uploaded' });
+    }
+    
+    if (!req.file.originalname.toLowerCase().endsWith('.pdf')) {
+        return res.status(400).json({ error: 'File must be a PDF' });
+    }
+    
+    try {
+        const filePath = req.file.path;
+        const dataBuffer = fs.readFileSync(filePath);
+        const pdfData = await pdfParse(dataBuffer);
+        
+        res.json({
+            text: pdfData.text,
+            numPages: pdfData.numpages,
+            info: pdfData.info,
+            filename: req.file.originalname
+        });
+    } catch (error) {
+        console.error('PDF parsing error:', error);
+        res.status(500).json({ error: 'Failed to parse PDF', details: error.message });
+    }
 });
 
 // Serve frontend
