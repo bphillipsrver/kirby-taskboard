@@ -33,6 +33,26 @@
             opacity: 0.9;
         }
 
+        .version-badge {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            font-family: monospace;
+            z-index: 100;
+            transition: all 0.2s;
+        }
+
+        .version-badge:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+
         .settings-btn {
             position: fixed;
             top: 20px;
@@ -528,6 +548,8 @@
     </style>
 </head>
 <body>
+    <div class="version-badge" title="Task Board Version">v2.1.0</div>
+    
     <button class="settings-btn" onclick="openSettings()" title="Settings">⚙️</button>
 
     <div class="header">

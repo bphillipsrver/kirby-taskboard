@@ -4,21 +4,24 @@ A full-stack task board application with backend sync for Elvis and Kirby.
 
 ## Features
 
-- 📝 **Kanban Board**: Three columns (To Do, In Progress, Done)
+- 📝 **Kanban Board**: Four columns (To Do, Ready to Start, In Progress, Done)
 - 🔄 **Real-time Sync**: Tasks sync across all devices
 - 🔐 **API Key Auth**: Secure access control for modifications
 - 👤 **Assignees**: Tasks can be assigned to Elvis or Kirby
 - 🏷️ **Priority Levels**: High, Medium, Low
 - 📝 **Notes**: Add details to tasks
-- 🖱️ **Drag & Drop**: Move tasks between columns
+- 🖱️ **Drag & Drop**: Move tasks between columns and reorder within columns
+- 💾 **Persistent Storage**: Tasks never disappear (PostgreSQL database)
+- 🗑️ **Trash & Undo**: Recover accidentally deleted tasks
 - 📱 **Mobile Friendly**: Works on all devices
 
 ## Tech Stack
 
 - **Backend**: Node.js + Express
-- **Database**: SQLite
+- **Database**: PostgreSQL (Supabase)
 - **Frontend**: Vanilla HTML/CSS/JS
 - **Deployment**: Render (free tier)
+- **Version**: v2.1.0
 
 ## API Documentation
 
@@ -204,6 +207,26 @@ curl https://your-app.onrender.com/api/backup \
 # List backup files
 curl https://your-app.onrender.com/backups/
 ```
+
+## Versioning
+
+The task board displays a version number in the top left corner (e.g., `v2.1.0`).
+
+**Version Format:** `MAJOR.MINOR.PATCH`
+- **MAJOR**: Breaking changes (database schema changes, API changes)
+- **MINOR**: New features (new columns, new functionality)
+- **PATCH**: Bug fixes, UI improvements
+
+**To update version:**
+1. Edit `public/index.html`
+2. Find `<div class="version-badge">vX.Y.Z</div>`
+3. Update the version number
+4. Commit and deploy
+
+**Version History:**
+- **v2.1.0**: Added Ready to Start column, version badge
+- **v2.0.0**: Migrated to Supabase PostgreSQL, persistent storage
+- **v1.0.0**: Initial release with SQLite
 
 ## License
 
