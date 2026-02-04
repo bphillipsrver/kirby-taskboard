@@ -21,6 +21,9 @@ jobs:
         git config user.name "Backup Bot"
         git config user.email "backup@kirby-taskboard.local"
         
+    - name: Install jq
+      run: sudo apt-get install -y jq
+        
     - name: Create backup from live database
       env:
         API_KEY: ${{ secrets.BACKUP_API_KEY }}
@@ -35,20 +38,23 @@ jobs:
         echo "📡 Triggering backup API..."
         curl -s -H "x-api-key: $API_KEY" "$API_URL/api/backup" > backup-response.json
         
-        # Check if backup was successful
-        if [ ! -f backup-response.json ]; then
-          echo "❌ Backup failed - no response"
+        # Check if backup file exists and has content
+        if [ ! -s backup-response.json ]; then
+          echo "❌ Backup failed - no response or empty file"
+          cat backup-response.json
           exit 1
         fi
         
-        # Parse the response to get file URLs
-        SQL_PATH=$(cat backup-response.json | jq -r '.files.sql')
-        JSON_PATH=$(cat backup-response.json | jq -r '.files.json')
-        TASK_COUNT=$(cat backup-response.json | jq -r '.taskCount')
-        BACKUP_TIMESTAMP=$(cat backup-response.json | jq -r '.timestamp')
+        echo "✅ Backup API response received"
+        cat backup-response.json
         
-        if [ -z "$SQL_PATH" ] || [ "$SQL_PATH" = "null" ]; then
-          echo "❌ Failed to get backup file paths"
+        # Parse the response to get file URLs using jq
+        SQL_PATH=$(cat backup-response.json | jq -r '.files.sql // empty')
+        JSON_PATH=$(cat backup-response.json | jq -r '.files.json // empty')
+        TASK_COUNT=$(cat backup-response.json | jq -r '.taskCount // 0')
+        
+        if [ -z "$SQL_PATH" ]; then
+          echo "❌ Failed to parse backup response - SQL path is empty"
           cat backup-response.json
           exit 1
         fi
@@ -64,18 +70,21 @@ jobs:
         curl -s "$API_URL$JSON_PATH" > "backups/$DATE/tasks-${TIMESTAMP}.json"
         
         # Save metadata
-        cat backup-response.json > "backups/$DATE/metadata-${TIMESTAMP}.json"
+        cp backup-response.json "backups/$DATE/metadata-${TIMESTAMP}.json"
         
         # Verify downloads
-        if [ -s "backups/$DATE/backup-${TIMESTAMP}.sql" ]; then
-          echo "✅ SQL backup downloaded ($(stat -c%s "backups/$DATE/backup-${TIMESTAMP}.sql") bytes)"
+        SQL_SIZE=$(stat -c%s "backups/$DATE/backup-${TIMESTAMP}.sql" 2>/dev/null || echo "0")
+        JSON_SIZE=$(stat -c%s "backups/$DATE/tasks-${TIMESTAMP}.json" 2>/dev/null || echo "0")
+        
+        if [ "$SQL_SIZE" -gt 0 ]; then
+          echo "✅ SQL backup downloaded ($SQL_SIZE bytes)"
         else
           echo "❌ SQL backup download failed or empty"
           exit 1
         fi
         
-        if [ -s "backups/$DATE/tasks-${TIMESTAMP}.json" ]; then
-          echo "✅ JSON backup downloaded ($(stat -c%s "backups/$DATE/tasks-${TIMESTAMP}.json") bytes)"
+        if [ "$JSON_SIZE" -gt 0 ]; then
+          echo "✅ JSON backup downloaded ($JSON_SIZE bytes)"
         else
           echo "❌ JSON backup download failed or empty"
           exit 1
@@ -91,18 +100,20 @@ jobs:
         
     - name: Commit and push backup
       run: |
+        DATE=$(date +%Y-%m-%d)
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        
         # Check if there are changes
         if [ -z "$(git status --porcelain)" ]; then
           echo "No changes to commit"
           exit 0
         fi
         
-        DATE=$(date +%Y-%m-%d)
         git add -A
         git commit -m "Daily backup: $DATE
 
-        - SQL dump: backup-$(date +%Y%m%d_%H%M%S).sql
-        - JSON export: tasks-$(date +%Y%m%d_%H%M%S).json
+        - SQL dump: backup-${TIMESTAMP}.sql
+        - JSON export: tasks-${TIMESTAMP}.json
         - Tasks backed up: $(find backups -name '*.json' -type f | wc -l) files
         
         Automated backup from Render database"
