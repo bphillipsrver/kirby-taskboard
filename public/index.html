@@ -59,7 +59,7 @@
             margin: 0 auto;
         }
 
-        .column {
+        .status {
             background: rgba(255, 255, 255, 0.95);
             border-radius: 12px;
             padding: 20px;
@@ -67,7 +67,7 @@
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
         }
 
-        .column-header {
+        .status-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -76,7 +76,7 @@
             border-bottom: 3px solid #e0e0e0;
         }
 
-        .column-title {
+        .status-title {
             font-size: 1.2rem;
             font-weight: 600;
             display: flex;
@@ -84,7 +84,7 @@
             gap: 10px;
         }
 
-        .column-count {
+        .status-count {
             background: #667eea;
             color: white;
             padding: 4px 12px;
@@ -92,9 +92,9 @@
             font-size: 0.85rem;
         }
 
-        .todo .column-header { border-color: #ff6b6b; }
-        .inprogress .column-header { border-color: #feca57; }
-        .done .column-header { border-color: #1dd1a1; }
+        .todo .status-header { border-color: #ff6b6b; }
+        .inprogress .status-header { border-color: #feca57; }
+        .done .status-header { border-color: #1dd1a1; }
 
         .add-task-btn {
             background: #667eea;
@@ -515,7 +515,7 @@
     </div>
 
     <div class="board">
-        <div class="column todo" data-column="todo">
+        <div class="column todo" data-status="todo">
             <div class="column-header">
                 <span class="column-title">
                     <span class="emoji">📋</span>
@@ -527,7 +527,7 @@
             <div class="task-list" id="todo-list" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
         </div>
 
-        <div class="column inprogress" data-column="inprogress">
+        <div class="column inprogress" data-status="inprogress">
             <div class="column-header">
                 <span class="column-title">
                     <span class="emoji">⚡</span>
@@ -539,7 +539,7 @@
             <div class="task-list" id="inprogress-list" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
         </div>
 
-        <div class="column done" data-column="done">
+        <div class="column done" data-status="done">
             <div class="column-header">
                 <span class="column-title">
                     <span class="emoji">✅</span>
@@ -669,7 +669,7 @@
 
     <script>
         const API_BASE_URL = window.location.origin;
-        let currentColumn = 'todo';
+        let currentStatus = 'todo';
         let draggedTask = null;
         let editingTaskId = null;
         let apiKey = localStorage.getItem('kirbyApiKey') || 'kirby-taskboard-2025-elvis';
@@ -705,7 +705,7 @@
         }
 
         function openModal(column, taskId = null) {
-            currentColumn = column;
+            currentStatus = column;
             editingTaskId = taskId;
 
             const modalTitle = document.getElementById('modalTitle');
@@ -826,7 +826,7 @@
                 priority,
                 assignee,
                 notes,
-                column: currentColumn,
+                status: currentStatus,
                 due_date,
                 attachment
             };
@@ -921,7 +921,7 @@
             taskElement.addEventListener('dragstart', dragStart);
             taskElement.addEventListener('dragend', dragEnd);
 
-            const columnId = task.column || 'todo';
+            const columnId = task.status || 'todo';
             const listEl = document.getElementById(`${columnId}-list`);
             if (listEl) {
                 listEl.appendChild(taskElement);
@@ -1207,7 +1207,7 @@
             const taskList = e.target.closest('.task-list');
             if (!taskList) return;
 
-            const newColumn = taskList.id.replace('-list', '');
+            const newStatus = taskList.id.replace('-list', '');
             const taskId = draggedTask.dataset.id;
 
             if (!apiKey) {
@@ -1223,7 +1223,7 @@
                         'Content-Type': 'application/json',
                         'X-API-Key': apiKey
                     },
-                    body: JSON.stringify({ column: newColumn })
+                    body: JSON.stringify({ status: newStatus })
                 });
 
                 if (!response.ok) throw new Error('Failed to move task');
