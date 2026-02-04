@@ -147,6 +147,20 @@
         .priority-medium { background: #feca57; color: #333; }
         .priority-low { background: #1dd1a1; color: white; }
 
+        .task-assignee {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-left: 8px;
+        }
+
+        .assignee-elvis { background: #3498db; color: white; }
+        .assignee-kirby { background: #9b59b6; color: white; }
+
         .delete-btn {
             position: absolute;
             top: 8px;
@@ -340,6 +354,13 @@
                     </select>
                 </div>
                 <div class="form-group">
+                    <label for="taskAssignee">Assigned To</label>
+                    <select id="taskAssignee">
+                        <option value="elvis" selected>Elvis 👤</option>
+                        <option value="kirby">Kirby 🐶</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label for="taskNotes">Notes (optional)</label>
                     <textarea id="taskNotes" placeholder="Any details..."></textarea>
                 </div>
@@ -376,12 +397,14 @@
             
             const title = document.getElementById('taskTitle').value;
             const priority = document.getElementById('taskPriority').value;
+            const assignee = document.getElementById('taskAssignee').value;
             const notes = document.getElementById('taskNotes').value;
             
             const task = {
                 id: Date.now().toString(),
                 title,
                 priority,
+                assignee,
                 notes,
                 column: currentColumn,
                 created: new Date().toLocaleDateString()
@@ -399,11 +422,17 @@
             taskElement.draggable = true;
             taskElement.dataset.id = task.id;
             
+            const assigneeLabel = task.assignee === 'kirby' ? 'Kirby 🐶' : 'Elvis 👤';
+            const assigneeClass = task.assignee === 'kirby' ? 'assignee-kirby' : 'assignee-elvis';
+            
             taskElement.innerHTML = `
                 <button class="delete-btn" onclick="deleteTask('${task.id}')">×</button>
                 <div class="task-title">${escapeHtml(task.title)}</div>
                 <div class="task-meta">
-                    <span class="task-priority priority-${task.priority}">${task.priority}</span>
+                    <span>
+                        <span class="task-priority priority-${task.priority}">${task.priority}</span>
+                        <span class="task-assignee ${assigneeClass}">${assigneeLabel}</span>
+                    </span>
                     <span>${task.created}</span>
                 </div>
                 ${task.notes ? `<div style="margin-top: 8px; font-size: 0.85rem; color: #666;">${escapeHtml(task.notes)}</div>` : ''}
@@ -467,11 +496,14 @@
             const tasks = [];
             document.querySelectorAll('.task').forEach(taskEl => {
                 const column = taskEl.parentElement.id.replace('-list', '');
+                const assigneeEl = taskEl.querySelector('.task-assignee');
+                const assignee = assigneeEl ? (assigneeEl.classList.contains('assignee-kirby') ? 'kirby' : 'elvis') : 'elvis';
                 tasks.push({
                     id: taskEl.dataset.id,
                     title: taskEl.querySelector('.task-title').textContent,
                     priority: taskEl.querySelector('.task-priority').textContent,
-                    notes: taskEl.querySelector('.task-meta + div')?.textContent || '',
+                    assignee: assignee,
+                    notes: taskEl.querySelector('.task-meta').nextElementSibling?.textContent || '',
                     column: column,
                     created: taskEl.querySelector('.task-meta span:last-child').textContent
                 });
