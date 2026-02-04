@@ -46,7 +46,12 @@ app.use(express.static('public'));
 app.use('/uploads', express.static(uploadsDir));
 
 // Initialize SQLite database
-const db = new sqlite3.Database(process.env.DATABASE_PATH || './tasks.db');
+const dbPath = process.env.DATABASE_PATH || './tasks.db';
+console.log('📁 Database path:', dbPath);
+console.log('📂 Database directory exists:', fs.existsSync(path.dirname(dbPath)));
+console.log('📝 Database file exists:', fs.existsSync(dbPath));
+
+const db = new sqlite3.Database(dbPath);
 
 // Create tasks table if not exists
 db.serialize(() => {
@@ -74,6 +79,15 @@ db.serialize(() => {
     db.run(`ALTER TABLE tasks ADD COLUMN attachment TEXT`, (err) => {
         if (err && !err.message.includes('duplicate column')) {
             console.error('Migration error:', err);
+        }
+    });
+    
+    // Log task count on startup
+    db.get('SELECT COUNT(*) as count FROM tasks', (err, row) => {
+        if (err) {
+            console.error('Error counting tasks:', err);
+        } else {
+            console.log('📊 Tasks in database:', row.count);
         }
     });
 });
