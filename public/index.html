@@ -404,6 +404,106 @@
             color: #feca57;
             font-weight: 600;
         }
+
+        .trash-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 15px 20px;
+            border-radius: 50px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3);
+            transition: all 0.2s;
+            z-index: 100;
+        }
+
+        .trash-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 16px rgba(255, 107, 107, 0.4);
+        }
+
+        .trash-btn span {
+            background: white;
+            color: #ff6b6b;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            margin-left: 5px;
+            font-weight: 600;
+        }
+
+        .undo-notification {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            background: #333;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            display: none;
+            align-items: center;
+            gap: 15px;
+            z-index: 101;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .undo-notification.show {
+            display: flex;
+        }
+
+        .undo-notification button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .undo-notification button:hover {
+            background: #5a6fd6;
+        }
+
+        .trash-item {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .trash-item:last-child {
+            border-bottom: none;
+        }
+
+        .trash-item-info {
+            flex: 1;
+        }
+
+        .trash-item-title {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .trash-item-meta {
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        .trash-item-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+        }
     </style>
 </head>
 <body>
@@ -520,6 +620,46 @@
         </div>
     </div>
 
+    <!-- Delete Confirmation Modal -->
+    <div class="modal" id="deleteConfirmModal">
+        <div class="modal-content" style="max-width: 400px;">
+            <h2>🗑️ Delete Task?</h2>
+            <p style="margin: 20px 0; color: #666;">Are you sure you want to delete this task? It will be moved to trash for 24 hours.</p>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeDeleteConfirm()">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="confirmDelete()" style="background: #ff6b6b; color: white;">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trash Modal -->
+    <div class="modal" id="trashModal">
+        <div class="modal-content" style="max-width: 600px; max-height: 80vh;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>🗑️ Trash</h2>
+                <button type="button" class="btn btn-secondary" onclick="closeTrash()">Close</button>
+            </div>
+            <div id="trashList" style="overflow-y: auto; max-height: 60vh;">
+                <p style="color: #888; text-align: center; padding: 40px;">No deleted tasks</p>
+            </div>
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+                <small style="color: #888;">Tasks are permanently deleted after 24 hours</small>
+                <button type="button" class="btn btn-danger" onclick="emptyTrash()" style="background: #ff6b6b; color: white; font-size: 0.85rem;">Empty Trash</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trash Button (Fixed Position) -->
+    <button class="trash-btn" onclick="openTrash()" title="View Trash">
+        🗑️ <span id="trashCount" style="display: none;">0</span>
+    </button>
+
+    <!-- Undo Notification -->
+    <div class="undo-notification" id="undoNotification">
+        <span>Task deleted</span>
+        <button onclick="undoDelete()">Undo</button>
+    </div>
+
     <div class="save-indicator" id="saveIndicator">💾 Saved!</div>
 
     <div class="sync-status online" id="syncStatus">
@@ -535,7 +675,11 @@
         let apiKey = localStorage.getItem('kirbyApiKey') || 'kirby-taskboard-2025-elvis';
 
         // Load tasks on startup
-        document.addEventListener('DOMContentLoaded', loadTasks);
+        document.addEventListener('DOMContentLoaded', () => {
+            loadTasks();
+            cleanupTrash();
+            updateTrashCount();
+        });
 
         async function loadTasks() {
             try {
@@ -762,7 +906,7 @@
             }
 
             taskElement.innerHTML = `
-                <button class="delete-btn" onclick="deleteTask(${task.id})">×</button>
+                <button class="delete-btn" onclick="openDeleteConfirm(${task.id})">×</button>
                 <div class="task-title" onclick="editTask(${task.id})">${escapeHtml(task.title)}</div>
                 <div class="task-meta">
                     <span class="task-priority priority-${task.priority}">${task.priority}</span>
@@ -792,13 +936,65 @@
             }
         }
 
-        async function deleteTask(taskId) {
-            if (!confirm('Are you sure you want to delete this task?')) return;
+        // Trash and Undo functionality
+        let taskToDelete = null;
+        let recentlyDeleted = JSON.parse(localStorage.getItem('kirbyTrash') || '[]');
+        let undoTimeout = null;
 
+        // Clean up old trash items (older than 24 hours)
+        function cleanupTrash() {
+            const now = Date.now();
+            const oneDay = 24 * 60 * 60 * 1000;
+            recentlyDeleted = recentlyDeleted.filter(item => (now - item.deletedAt) < oneDay);
+            localStorage.setItem('kirbyTrash', JSON.stringify(recentlyDeleted));
+            updateTrashCount();
+        }
+
+        function updateTrashCount() {
+            const count = recentlyDeleted.length;
+            const badge = document.getElementById('trashCount');
+            if (count > 0) {
+                badge.textContent = count;
+                badge.style.display = 'inline';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        function openDeleteConfirm(taskId) {
+            taskToDelete = taskId;
+            document.getElementById('deleteConfirmModal').classList.add('active');
+        }
+
+        function closeDeleteConfirm() {
+            taskToDelete = null;
+            document.getElementById('deleteConfirmModal').classList.remove('active');
+        }
+
+        async function confirmDelete() {
+            if (!taskToDelete) return;
+            await deleteTask(taskToDelete, true);
+            closeDeleteConfirm();
+        }
+
+        async function deleteTask(taskId, showUndo = false) {
             if (!apiKey) {
                 showIndicator('🔑 API key required', true);
                 openSettings();
                 return;
+            }
+
+            // Get task data before deleting
+            const taskEl = document.querySelector(`[data-id="${taskId}"]`);
+            let taskData = null;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`);
+                if (response.ok) {
+                    taskData = await response.json();
+                }
+            } catch (e) {
+                console.error('Could not fetch task data:', e);
             }
 
             try {
@@ -814,12 +1010,179 @@
                     throw new Error(error.error || 'Failed to delete task');
                 }
 
+                // Add to trash
+                if (taskData) {
+                    recentlyDeleted.push({
+                        ...taskData,
+                        deletedAt: Date.now()
+                    });
+                    localStorage.setItem('kirbyTrash', JSON.stringify(recentlyDeleted));
+                    updateTrashCount();
+                }
+
                 await loadTasks();
-                showIndicator('🗑️ Task deleted');
+                
+                if (showUndo) {
+                    showUndoNotification();
+                } else {
+                    showIndicator('🗑️ Task deleted');
+                }
             } catch (error) {
                 console.error('Error deleting task:', error);
                 showIndicator('❌ ' + error.message, true);
             }
+        }
+
+        function showUndoNotification() {
+            const notification = document.getElementById('undoNotification');
+            notification.classList.add('show');
+            
+            // Clear existing timeout
+            if (undoTimeout) {
+                clearTimeout(undoTimeout);
+            }
+            
+            // Auto-hide after 10 seconds
+            undoTimeout = setTimeout(() => {
+                hideUndoNotification();
+            }, 10000);
+        }
+
+        function hideUndoNotification() {
+            const notification = document.getElementById('undoNotification');
+            notification.classList.remove('show');
+        }
+
+        async function undoDelete() {
+            if (recentlyDeleted.length === 0) {
+                hideUndoNotification();
+                return;
+            }
+
+            const lastDeleted = recentlyDeleted[recentlyDeleted.length - 1];
+            
+            try {
+                // Recreate the task
+                const { id, deletedAt, ...taskData } = lastDeleted;
+                
+                const response = await fetch(`${API_BASE_URL}/api/tasks`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': apiKey
+                    },
+                    body: JSON.stringify(taskData)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to restore task');
+                }
+
+                // Remove from trash
+                recentlyDeleted.pop();
+                localStorage.setItem('kirbyTrash', JSON.stringify(recentlyDeleted));
+                updateTrashCount();
+                
+                hideUndoNotification();
+                await loadTasks();
+                showIndicator('✅ Task restored');
+            } catch (error) {
+                console.error('Error restoring task:', error);
+                showIndicator('❌ Failed to restore', true);
+            }
+        }
+
+        function openTrash() {
+            cleanupTrash();
+            renderTrashList();
+            document.getElementById('trashModal').classList.add('active');
+        }
+
+        function closeTrash() {
+            document.getElementById('trashModal').classList.remove('active');
+        }
+
+        function renderTrashList() {
+            const container = document.getElementById('trashList');
+            
+            if (recentlyDeleted.length === 0) {
+                container.innerHTML = '<p style="color: #888; text-align: center; padding: 40px;">No deleted tasks</p>';
+                return;
+            }
+
+            container.innerHTML = recentlyDeleted.map(task => {
+                const deletedTime = new Date(task.deletedAt).toLocaleString();
+                const expiresIn = Math.ceil((24 * 60 * 60 * 1000 - (Date.now() - task.deletedAt)) / (60 * 60 * 1000));
+                
+                return `
+                    <div class="trash-item">
+                        <div class="trash-item-info">
+                            <div class="trash-item-title">${escapeHtml(task.title)}</div>
+                            <div class="trash-item-meta">
+                                Deleted: ${deletedTime} • Expires in ${expiresIn}h
+                            </div>
+                        </div>
+                        <div class="trash-item-actions">
+                            <button class="btn btn-primary btn-small" onclick="restoreFromTrash(${task.id})">Restore</button>
+                            <button class="btn btn-danger btn-small" onclick="permanentDelete(${task.id})" style="background: #ff6b6b; color: white;">Delete</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function restoreFromTrash(taskId) {
+            const task = recentlyDeleted.find(t => t.id === taskId);
+            if (!task) return;
+
+            try {
+                const { id, deletedAt, ...taskData } = task;
+                
+                const response = await fetch(`${API_BASE_URL}/api/tasks`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': apiKey
+                    },
+                    body: JSON.stringify(taskData)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to restore task');
+                }
+
+                // Remove from trash
+                recentlyDeleted = recentlyDeleted.filter(t => t.id !== taskId);
+                localStorage.setItem('kirbyTrash', JSON.stringify(recentlyDeleted));
+                updateTrashCount();
+                renderTrashList();
+                await loadTasks();
+                showIndicator('✅ Task restored');
+            } catch (error) {
+                console.error('Error restoring task:', error);
+                showIndicator('❌ Failed to restore', true);
+            }
+        }
+
+        async function permanentDelete(taskId) {
+            if (!confirm('Permanently delete this task? This cannot be undone.')) return;
+
+            // Remove from trash
+            recentlyDeleted = recentlyDeleted.filter(t => t.id !== taskId);
+            localStorage.setItem('kirbyTrash', JSON.stringify(recentlyDeleted));
+            updateTrashCount();
+            renderTrashList();
+            showIndicator('🗑️ Task permanently deleted');
+        }
+
+        async function emptyTrash() {
+            if (!confirm('Empty trash and permanently delete all tasks?')) return;
+
+            recentlyDeleted = [];
+            localStorage.setItem('kirbyTrash', JSON.stringify(recentlyDeleted));
+            updateTrashCount();
+            renderTrashList();
+            showIndicator('🗑️ Trash emptied');
         }
 
         function dragStart(e) {
