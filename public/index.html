@@ -535,7 +535,7 @@
     </div>
 
     <div class="board">
-        <div class="column todo" data-status="todo" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)">
+        <div class="column todo" data-status="todo" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)" ondrop="drop(event)" ondragover="allowDrop(event)">
             <div class="column-header">
                 <span class="column-title">
                     <span class="emoji">📋</span>
@@ -544,10 +544,10 @@
                 <span class="column-count" id="count-todo">0</span>
             </div>
             <button class="add-task-btn" onclick="openModal('todo')">+ Add Task</button>
-            <div class="task-list" id="todo-list" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            <div class="task-list" id="todo-list"></div>
         </div>
 
-        <div class="column inprogress" data-status="inprogress" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)">
+        <div class="column inprogress" data-status="inprogress" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)" ondrop="drop(event)" ondragover="allowDrop(event)">
             <div class="column-header">
                 <span class="column-title">
                     <span class="emoji">⚡</span>
@@ -556,10 +556,10 @@
                 <span class="column-count" id="count-inprogress">0</span>
             </div>
             <button class="add-task-btn" onclick="openModal('inprogress')">+ Add Task</button>
-            <div class="task-list" id="inprogress-list" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            <div class="task-list" id="inprogress-list"></div>
         </div>
 
-        <div class="column done" data-status="done" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)">
+        <div class="column done" data-status="done" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)" ondrop="drop(event)" ondragover="allowDrop(event)">
             <div class="column-header">
                 <span class="column-title">
                     <span class="emoji">✅</span>
@@ -568,7 +568,7 @@
                 <span class="column-count" id="count-done">0</span>
             </div>
             <button class="add-task-btn" onclick="openModal('done')">+ Add Task</button>
-            <div class="task-list" id="done-list" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+            <div class="task-list" id="done-list"></div>
         </div>
     </div>
 
@@ -1254,19 +1254,23 @@
             if (!draggedTask) return;
 
             const column = e.target.closest('.column');
-            const taskList = e.target.closest('.task-list');
-            if (!taskList || !column) return;
+            if (!column) return;
+
+            // Get the task list within this column
+            const taskList = column.querySelector('.task-list');
+            if (!taskList) return;
 
             // Remove drag-over styling
             document.querySelectorAll('.column').forEach(col => {
                 col.classList.remove('drag-over');
             });
 
-            const newStatus = taskList.id.replace('-list', '');
+            const newStatus = column.dataset.status;
             const taskId = draggedTask.dataset.id;
             const oldStatus = draggedTask.dataset.status;
 
             console.log(`Drop: Task ${taskId} from ${oldStatus} to ${newStatus}`);
+            console.log(`Drop Y position: ${e.clientY}`);
 
             if (!apiKey) {
                 showIndicator('🔑 API key required', true);
@@ -1274,8 +1278,11 @@
                 return;
             }
 
-            // Move the task element visually FIRST
+            // Calculate position even when dropping on empty space
             const afterElement = getDragAfterElement(taskList, e.clientY);
+            console.log(`After element: ${afterElement ? afterElement.dataset.id : 'none (append)'}`);
+
+            // Move the task element visually FIRST
             if (afterElement) {
                 taskList.insertBefore(draggedTask, afterElement);
             } else {
@@ -1286,7 +1293,7 @@
             draggedTask.dataset.status = newStatus;
 
             try {
-                // Update the moved task's status first
+                // Update the moved task's status
                 const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
                     method: 'PUT',
                     headers: {
@@ -1320,10 +1327,20 @@
         function getDragAfterElement(container, y) {
             const draggableElements = [...container.querySelectorAll('.task:not(.dragging)')];
             
+            // If no tasks in container, append to end
+            if (draggableElements.length === 0) {
+                console.log('No tasks in container, appending to end');
+                return null;
+            }
+            
             const result = draggableElements.reduce((closest, child) => {
                 const box = child.getBoundingClientRect();
-                const offset = y - box.top - box.height / 2;
+                // Get the center of the box
+                const boxCenter = box.top + box.height / 2;
+                const offset = y - boxCenter;
                 
+                // We want the element where our cursor is above its center
+                // and it's the closest one (smallest negative offset that's > negative infinity)
                 if (offset < 0 && offset > closest.offset) {
                     return { offset: offset, element: child };
                 } else {
@@ -1331,6 +1348,7 @@
                 }
             }, { offset: Number.NEGATIVE_INFINITY });
             
+            console.log(`getDragAfterElement: found ${result.element ? 'element' : 'none'}, offset: ${result.offset}`);
             return result.element || null;
         }
 
