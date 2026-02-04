@@ -6,7 +6,7 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const API_KEY = process.env.API_KEY || 'kirby-taskboard-secret-key';
+const API_KEY = process.env.API_KEY || 'kirby-taskboard-2025-elvis';
 
 // Middleware
 app.use(cors());
