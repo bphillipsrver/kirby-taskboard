@@ -59,15 +59,32 @@
             margin: 0 auto;
         }
 
-        .status {
-            background: rgba(255, 255, 255, 0.95);
+        .column {
+            background: rgba(255, 255, 255, 0.98);
             border-radius: 12px;
             padding: 20px;
             min-height: 500px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            transition: all 0.2s ease;
+            border: 2px solid transparent;
         }
 
-        .status-header {
+        .column.drag-over {
+            border: 3px dashed #667eea;
+            background: rgba(102, 126, 234, 0.08);
+            transform: scale(1.02);
+            box-shadow: 0 15px 50px rgba(102, 126, 234, 0.3);
+        }
+
+        .column.drop-target {
+            transition: all 0.2s ease;
+        }
+
+        .column.drop-target:not(.drag-over) {
+            opacity: 0.9;
+        }
+
+        .column-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -76,7 +93,7 @@
             border-bottom: 3px solid #e0e0e0;
         }
 
-        .status-title {
+        .column-title {
             font-size: 1.2rem;
             font-weight: 600;
             display: flex;
@@ -84,7 +101,7 @@
             gap: 10px;
         }
 
-        .status-count {
+        .column-count {
             background: #667eea;
             color: white;
             padding: 4px 12px;
@@ -92,9 +109,9 @@
             font-size: 0.85rem;
         }
 
-        .todo .status-header { border-color: #ff6b6b; }
-        .inprogress .status-header { border-color: #feca57; }
-        .done .status-header { border-color: #1dd1a1; }
+        .todo .column-header { border-color: #ff6b6b; }
+        .inprogress .column-header { border-color: #feca57; }
+        .done .column-header { border-color: #1dd1a1; }
 
         .add-task-btn {
             background: #667eea;
@@ -135,8 +152,11 @@
         }
 
         .task.dragging {
-            opacity: 0.5;
+            opacity: 0.7;
             cursor: grabbing;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+            transform: rotate(2deg) scale(1.02);
+            z-index: 1000;
         }
 
         .task-title {
@@ -515,7 +535,7 @@
     </div>
 
     <div class="board">
-        <div class="column todo" data-status="todo">
+        <div class="column todo" data-status="todo" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)">
             <div class="column-header">
                 <span class="column-title">
                     <span class="emoji">📋</span>
@@ -527,7 +547,7 @@
             <div class="task-list" id="todo-list" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
         </div>
 
-        <div class="column inprogress" data-status="inprogress">
+        <div class="column inprogress" data-status="inprogress" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)">
             <div class="column-header">
                 <span class="column-title">
                     <span class="emoji">⚡</span>
@@ -539,7 +559,7 @@
             <div class="task-list" id="inprogress-list" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
         </div>
 
-        <div class="column done" data-status="done">
+        <div class="column done" data-status="done" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)">
             <div class="column-header">
                 <span class="column-title">
                     <span class="emoji">✅</span>
@@ -1189,11 +1209,36 @@
             draggedTask = this;
             this.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
+            
+            // Add visual indicator to all columns
+            document.querySelectorAll('.column').forEach(col => {
+                col.classList.add('drop-target');
+            });
         }
 
         function dragEnd(e) {
             this.classList.remove('dragging');
             draggedTask = null;
+            
+            // Remove visual indicators
+            document.querySelectorAll('.column').forEach(col => {
+                col.classList.remove('drop-target', 'drag-over');
+            });
+        }
+
+        function dragEnter(e) {
+            e.preventDefault();
+            const column = e.target.closest('.column');
+            if (column && draggedTask) {
+                column.classList.add('drag-over');
+            }
+        }
+
+        function dragLeave(e) {
+            const column = e.target.closest('.column');
+            if (column && !column.contains(e.relatedTarget)) {
+                column.classList.remove('drag-over');
+            }
         }
 
         function allowDrop(e) {
