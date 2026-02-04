@@ -106,7 +106,105 @@ npm run dev
 | `API_KEY` | Secret key for write operations | kirby-taskboard-secret-key |
 | `DATABASE_PATH` | SQLite database path | ./tasks.db |
 
+## Backup & Restore
+
+### Automatic Backups
+
+The application includes a backup system to protect your task data:
+
+**Features:**
+- ✅ Daily automated backups (configurable)
+- ✅ 30-day retention policy
+- ✅ Multiple backup formats (SQL, JSON)
+- ✅ Easy one-click restore
+
+### Manual Backup
+
+**Via API:**
+```bash
+curl https://your-app.onrender.com/api/backup \
+  -H "X-API-Key: your-secret-api-key"
+```
+
+**Response:**
+```json
+{
+  "message": "Backup created successfully",
+  "timestamp": "2024-02-04T10-30-00-000Z",
+  "taskCount": 15,
+  "files": {
+    "sql": "/backups/backup-2024-02-04T10-30-00-000Z.sql",
+    "json": "/backups/tasks-2024-02-04T10-30-00-000Z.json"
+  }
+}
+```
+
+**Download Backup Files:**
+```bash
+# Download SQL backup
+curl https://your-app.onrender.com/backups/backup-2024-02-04T10-30-00-000Z.sql
+
+# Download JSON backup
+curl https://your-app.onrender.com/backups/tasks-2024-02-04T10-30-00-000Z.json
+```
+
+### Restore from Backup
+
+**Option 1: Using the restore script (Local)**
+```bash
+# Download backup first
+curl -O https://your-app.onrender.com/backups/backup-2024-02-04T10-30-00-000Z.sql
+
+# Restore
+./scripts/restore.sh backup-2024-02-04T10-30-00-000Z.sql
+```
+
+**Option 2: Manual restore**
+```bash
+# Stop the server
+# Replace database file
+sqlite3 tasks.db < backup-file.sql
+# Restart the server
+```
+
+### Automated Daily Backups
+
+**Setup (GitHub Actions):**
+
+1. Create a `backups` branch in your repo:
+   ```bash
+   git checkout -b backups
+   git push origin backups
+   ```
+
+2. Add GitHub Secrets:
+   - `BACKUP_API_KEY`: Your API key
+   - `API_URL`: Your Render app URL
+
+3. The backup workflow will run daily at 2 AM UTC
+
+**Backup Retention:**
+- Backups older than 30 days are automatically deleted
+- Each backup includes SQL dump + JSON export
+- Stored in GitHub repository (`backups` branch)
+
+## Troubleshooting
+
+### Tasks not persisting?
+1. Check sync status indicator (bottom left)
+2. Verify database disk is mounted on Render
+3. Check server logs for errors
+
+### How to check if backup is working?
+```bash
+# Trigger manual backup
+curl https://your-app.onrender.com/api/backup \
+  -H "X-API-Key: your-secret-api-key"
+
+# List backup files
+curl https://your-app.onrender.com/backups/
+```
+
 ## License
 
 MIT
-# Trigger deploy Tue Feb  3 23:50:45 EST 2026

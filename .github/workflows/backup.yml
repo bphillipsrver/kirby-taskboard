@@ -1,0 +1,51 @@
+name: Daily Database Backup
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC (9 PM EST / 10 PM EDT)
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: backups
+        
+    - name: Setup Git
+      run: |
+        git config user.name "Backup Bot"
+        git config user.email "backup@kirby-taskboard.local"
+        
+    - name: Create backup from live database
+      env:
+        API_KEY: ${{ secrets.BACKUP_API_KEY }}
+        API_URL: ${{ secrets.API_URL }}
+      run: |
+        # Create backup directory
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        DATE=$(date +%Y-%m-%d)
+        
+        # Download JSON backup from API
+        curl -s -H "x-api-key: $API_KEY" "$API_URL/api/backup" > backup-response.json
+        
+        # Check if backup was successful
+        if [ $? -eq 0 ]; then
+          echo "✅ Backup triggered successfully"
+          cat backup-response.json | jq '.'
+        else
+          echo "❌ Backup failed"
+          exit 1
+        fi
+        
+    - name: Commit and push backup
+      run: |
+        git add -A
+        git commit -m "Daily backup: $(date +%Y-%m-%d)
+        
+        Automated backup from Render database" || echo "No changes to commit"
+        git push origin backups || echo "Nothing to push"

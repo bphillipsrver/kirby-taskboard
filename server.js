@@ -341,6 +341,57 @@ app.post('/api/parse-pdf', requireAuth, upload.single('file'), async (req, res) 
     }
 });
 
+// Backup endpoint - exports database as SQL and JSON
+app.get('/api/backup', requireAuth, (req, res) => {
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupDir = path.join(__dirname, 'backups');
+        
+        // Ensure backups directory exists
+        if (!fs.existsSync(backupDir)) {
+            fs.mkdirSync(backupDir, { recursive: true });
+        }
+        
+        const sqlFile = path.join(backupDir, `backup-${timestamp}.sql`);
+        const jsonFile = path.join(backupDir, `tasks-${timestamp}.json`);
+        
+        // Export SQL
+        const { exec } = require('child_process');
+        exec(`sqlite3 "${dbPath}" ".dump" > "${sqlFile}"`, (error) => {
+            if (error) {
+                console.error('SQL backup error:', error);
+                return res.status(500).json({ error: 'Failed to create SQL backup' });
+            }
+            
+            // Export JSON
+            db.all('SELECT * FROM tasks ORDER BY created_at DESC', (err, rows) => {
+                if (err) {
+                    console.error('JSON backup error:', err);
+                    return res.status(500).json({ error: 'Failed to create JSON backup' });
+                }
+                
+                fs.writeFileSync(jsonFile, JSON.stringify(rows, null, 2));
+                
+                res.json({
+                    message: 'Backup created successfully',
+                    timestamp: timestamp,
+                    taskCount: rows.length,
+                    files: {
+                        sql: `/backups/backup-${timestamp}.sql`,
+                        json: `/backups/tasks-${timestamp}.json`
+                    }
+                });
+            });
+        });
+    } catch (error) {
+        console.error('Backup error:', error);
+        res.status(500).json({ error: 'Failed to create backup', details: error.message });
+    }
+});
+
+// Serve backup files
+app.use('/backups', express.static(path.join(__dirname, 'backups')));
+
 // Serve frontend
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
