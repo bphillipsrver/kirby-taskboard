@@ -5,6 +5,8 @@ const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
+const { fromPath } = require('pdf2pic');
+const { createWorker } = require('tesseract.js');
 require('dotenv').config();
 
 const app = express();
@@ -246,7 +248,7 @@ app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
     });
 });
 
-// Parse PDF endpoint
+// Parse PDF endpoint with OCR fallback
 app.post('/api/parse-pdf', requireAuth, upload.single('file'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No PDF file uploaded' });
@@ -256,19 +258,71 @@ app.post('/api/parse-pdf', requireAuth, upload.single('file'), async (req, res) 
         return res.status(400).json({ error: 'File must be a PDF' });
     }
     
+    const filePath = req.file.path;
+    let worker = null;
+    
     try {
-        const filePath = req.file.path;
+        // First try regular PDF text extraction
         const dataBuffer = fs.readFileSync(filePath);
         const pdfData = await pdfParse(dataBuffer);
         
-        res.json({
-            text: pdfData.text,
-            numPages: pdfData.numpages,
-            info: pdfData.info,
-            filename: req.file.originalname
+        // If text is found, return it
+        if (pdfData.text && pdfData.text.trim().length > 50) {
+            return res.json({
+                text: pdfData.text,
+                numPages: pdfData.numpages,
+                info: pdfData.info,
+                filename: req.file.originalname,
+                source: 'text-extraction'
+            });
+        }
+        
+        // If no text or minimal text, try OCR
+        console.log('No text found in PDF, attempting OCR...');
+        
+        // Convert PDF to images
+        const outputDir = path.join(uploadsDir, 'ocr-temp');
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+        
+        const convert = fromPath(filePath, {
+            density: 150,
+            saveFilename: 'page',
+            savePath: outputDir,
+            format: 'png',
+            width: 1200
         });
+        
+        const images = await convert.bulk(-1); // Convert all pages
+        
+        // OCR each image
+        worker = await createWorker('eng');
+        let fullText = '';
+        
+        for (const image of images) {
+            const { data: { text } } = await worker.recognize(image.path);
+            fullText += text + '\n\n';
+        }
+        
+        await worker.terminate();
+        
+        // Clean up temp images
+        images.forEach(img => {
+            try { fs.unlinkSync(img.path); } catch (e) {}
+        });
+        
+        res.json({
+            text: fullText,
+            numPages: images.length,
+            info: pdfData.info,
+            filename: req.file.originalname,
+            source: 'ocr'
+        });
+        
     } catch (error) {
-        console.error('PDF parsing error:', error);
+        console.error('PDF parsing/OCR error:', error);
+        if (worker) await worker.terminate().catch(() => {});
         res.status(500).json({ error: 'Failed to parse PDF', details: error.message });
     }
 });
