@@ -140,14 +140,18 @@ app.post('/api/tasks', requireAuth, (req, res) => {
         return res.status(400).json({ error: 'Title is required' });
     }
     
+    console.log(`📝 Creating task: "${title.substring(0, 50)}..." at ${new Date().toISOString()}`);
+    
     const sql = `INSERT INTO tasks (title, priority, assignee, notes, column, due_date, attachment) 
                  VALUES (?, ?, ?, ?, ?, ?, ?)`;
     
     db.run(sql, [title, priority, assignee, notes, column, due_date, attachment], function(err) {
         if (err) {
-            console.error(err);
+            console.error('❌ Create error:', err);
             return res.status(500).json({ error: 'Failed to create task' });
         }
+        
+        console.log(`✅ Task created with ID: ${this.lastID}`);
         
         db.get('SELECT * FROM tasks WHERE id = ?', [this.lastID], (err, row) => {
             if (err) {
@@ -207,9 +211,12 @@ app.put('/api/tasks/:id', requireAuth, (req, res) => {
 app.delete('/api/tasks/:id', requireAuth, (req, res) => {
     const { id } = req.params;
     
+    // Log deletion for debugging
+    console.log(`🗑️ Deleting task ID: ${id} at ${new Date().toISOString()}`);
+    
     db.run('DELETE FROM tasks WHERE id = ?', [id], function(err) {
         if (err) {
-            console.error(err);
+            console.error('❌ Delete error:', err);
             return res.status(500).json({ error: 'Failed to delete task' });
         }
         
@@ -217,6 +224,7 @@ app.delete('/api/tasks/:id', requireAuth, (req, res) => {
             return res.status(404).json({ error: 'Task not found' });
         }
         
+        console.log(`✅ Task ${id} deleted successfully`);
         res.json({ message: 'Task deleted successfully' });
     });
 });

@@ -26,26 +26,86 @@ jobs:
         API_KEY: ${{ secrets.BACKUP_API_KEY }}
         API_URL: ${{ secrets.API_URL }}
       run: |
-        # Create backup directory
-        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        # Create backup directory with date
         DATE=$(date +%Y-%m-%d)
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        mkdir -p "backups/$DATE"
         
-        # Download JSON backup from API
+        # Trigger backup API and get file URLs
+        echo "📡 Triggering backup API..."
         curl -s -H "x-api-key: $API_KEY" "$API_URL/api/backup" > backup-response.json
         
         # Check if backup was successful
-        if [ $? -eq 0 ]; then
-          echo "✅ Backup triggered successfully"
-          cat backup-response.json | jq '.'
-        else
-          echo "❌ Backup failed"
+        if [ ! -f backup-response.json ]; then
+          echo "❌ Backup failed - no response"
           exit 1
         fi
         
+        # Parse the response to get file URLs
+        SQL_PATH=$(cat backup-response.json | jq -r '.files.sql')
+        JSON_PATH=$(cat backup-response.json | jq -r '.files.json')
+        TASK_COUNT=$(cat backup-response.json | jq -r '.taskCount')
+        BACKUP_TIMESTAMP=$(cat backup-response.json | jq -r '.timestamp')
+        
+        if [ -z "$SQL_PATH" ] || [ "$SQL_PATH" = "null" ]; then
+          echo "❌ Failed to get backup file paths"
+          cat backup-response.json
+          exit 1
+        fi
+        
+        echo "✅ Backup API returned files:"
+        echo "   SQL: $SQL_PATH"
+        echo "   JSON: $JSON_PATH"
+        echo "   Tasks: $TASK_COUNT"
+        
+        # Download the backup files
+        echo "📥 Downloading backup files..."
+        curl -s "$API_URL$SQL_PATH" > "backups/$DATE/backup-${TIMESTAMP}.sql"
+        curl -s "$API_URL$JSON_PATH" > "backups/$DATE/tasks-${TIMESTAMP}.json"
+        
+        # Save metadata
+        cat backup-response.json > "backups/$DATE/metadata-${TIMESTAMP}.json"
+        
+        # Verify downloads
+        if [ -s "backups/$DATE/backup-${TIMESTAMP}.sql" ]; then
+          echo "✅ SQL backup downloaded ($(stat -c%s "backups/$DATE/backup-${TIMESTAMP}.sql") bytes)"
+        else
+          echo "❌ SQL backup download failed or empty"
+          exit 1
+        fi
+        
+        if [ -s "backups/$DATE/tasks-${TIMESTAMP}.json" ]; then
+          echo "✅ JSON backup downloaded ($(stat -c%s "backups/$DATE/tasks-${TIMESTAMP}.json") bytes)"
+        else
+          echo "❌ JSON backup download failed or empty"
+          exit 1
+        fi
+        
+        # Clean up old backups (keep only last 30 days)
+        echo "🧹 Cleaning up old backups..."
+        find backups -type d -name "202*" -mtime +30 -exec rm -rf {} + 2>/dev/null || true
+        find backups -type f -name "*.sql" -mtime +30 -delete 2>/dev/null || true
+        find backups -type f -name "*.json" -mtime +30 -delete 2>/dev/null || true
+        
+        echo "✅ Backup process complete"
+        
     - name: Commit and push backup
       run: |
-        git add -A
-        git commit -m "Daily backup: $(date +%Y-%m-%d)
+        # Check if there are changes
+        if [ -z "$(git status --porcelain)" ]; then
+          echo "No changes to commit"
+          exit 0
+        fi
         
-        Automated backup from Render database" || echo "No changes to commit"
-        git push origin backups || echo "Nothing to push"
+        DATE=$(date +%Y-%m-%d)
+        git add -A
+        git commit -m "Daily backup: $DATE
+
+        - SQL dump: backup-$(date +%Y%m%d_%H%M%S).sql
+        - JSON export: tasks-$(date +%Y%m%d_%H%M%S).json
+        - Tasks backed up: $(find backups -name '*.json' -type f | wc -l) files
+        
+        Automated backup from Render database"
+        
+        git push origin backups
+        echo "✅ Backup pushed to GitHub"
