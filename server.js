@@ -73,10 +73,37 @@ function initDatabase() {
                 console.error('❌ Database initialization error:', err);
             } else {
                 console.log('✅ Database table initialized');
-                // Migrate old single attachment to new array format
-                migrateAttachments();
+                // Add attachments column if it doesn't exist (for existing databases)
+                addAttachmentsColumn();
             }
         });
+    });
+}
+
+// Add attachments column if it doesn't exist
+function addAttachmentsColumn() {
+    db.all("PRAGMA table_info(tasks)", (err, columns) => {
+        if (err) {
+            console.error('❌ Error checking table columns:', err);
+            return;
+        }
+        
+        const hasAttachments = columns.some(col => col.name === 'attachments');
+        
+        if (!hasAttachments) {
+            db.run('ALTER TABLE tasks ADD COLUMN attachments TEXT', (err) => {
+                if (err) {
+                    console.error('❌ Error adding attachments column:', err);
+                } else {
+                    console.log('✅ Added attachments column');
+                    // Now migrate old attachments
+                    migrateAttachments();
+                }
+            });
+        } else {
+            // Column exists, just migrate
+            migrateAttachments();
+        }
     });
 }
 
