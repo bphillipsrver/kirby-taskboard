@@ -80,3 +80,6 @@ New-NetFirewallRule -DisplayName "Kirby Task Board" -Direction Inbound -Protocol
 1. Check Windows Firewall settings
 2. Verify devices are on the same network
 3. Check IP hasn't changed: run `ipconfig` and look for IPv4 Address
+
+---
+*Last verified: 2026-03-07 - Git push working*
