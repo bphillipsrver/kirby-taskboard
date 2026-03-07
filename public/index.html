@@ -427,6 +427,19 @@
             text-decoration: underline;
         }
 
+        .task-attachment-indicator {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: #667eea;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
         .task-due-date {
             margin-top: 8px;
             font-size: 0.8rem;
@@ -639,7 +652,7 @@
                     <label for="taskAttachment">Attachment (optional)</label>
                     <input type="file" id="taskAttachment" class="file-input">
                     <div id="attachmentPreview" class="attachment-preview" style="display: none; margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px;">
-                        <span id="attachmentName"></span>
+                        <a id="attachmentLink" href="#" target="_blank" style="color: #667eea; text-decoration: none; flex: 1;"></a>
                         <button type="button" onclick="clearAttachment()" style="margin-left: 10px; background: #ff6b6b; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">✕</button>
                     </div>
                 </div>
@@ -786,7 +799,10 @@
                         
                         // Show attachment if exists
                         if (task.attachment) {
-                            document.getElementById('attachmentName').textContent = task.attachment.split('-').pop();
+                            const fileName = task.attachment.split('-').pop();
+                            const linkEl = document.getElementById('attachmentLink');
+                            linkEl.textContent = '📎 ' + fileName;
+                            linkEl.href = API_BASE_URL + task.attachment;
                             document.getElementById('attachmentPreview').style.display = 'flex';
                         }
                     })
@@ -829,13 +845,18 @@
         document.getElementById('taskAttachment').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (file) {
-                document.getElementById('attachmentName').textContent = file.name;
+                const linkEl = document.getElementById('attachmentLink');
+                linkEl.textContent = '📎 ' + file.name;
+                linkEl.href = '#';
                 document.getElementById('attachmentPreview').style.display = 'flex';
             }
         });
 
         function clearAttachment() {
             document.getElementById('taskAttachment').value = '';
+            const linkEl = document.getElementById('attachmentLink');
+            linkEl.textContent = '';
+            linkEl.href = '#';
             document.getElementById('attachmentPreview').style.display = 'none';
         }
 
@@ -961,11 +982,10 @@
                 dueDateHtml = `<div class="task-due-date ${dueClass}">📅 ${dueText}</div>`;
             }
 
-            // Attachment display
+            // Attachment indicator (condensed view)
             let attachmentHtml = '';
             if (task.attachment) {
-                const fileName = task.attachment.split('-').pop();
-                attachmentHtml = `<div class="task-attachment">📎 <a href="${API_BASE_URL}${task.attachment}" target="_blank">${escapeHtml(fileName)}</a></div>`;
+                attachmentHtml = `<div class="task-attachment-indicator" title="1 attachment">📎 1</div>`;
             }
 
             taskElement.innerHTML = `
