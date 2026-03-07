@@ -1,4 +1,6 @@
-# Kirby Task Board - Local Setup
+# KirbyBoard - Local Setup
+
+**KirbyBoard** is your local network kanban task board (formerly kirby-taskboard).
 
 ## Quick Start
 
@@ -42,7 +44,7 @@ Server will be available at:
 1. Press `Win + R`, type `shell:startup`, press Enter
 2. Right-click → New → Shortcut
 3. Target: `wscript.exe "C:\Users\king\.openclaw\workspace\kirby-taskboard\start-server.vbs"`
-4. Name it "Kirby Task Board"
+4. Name it "KirbyBoard"
 
 ## Access from Other Devices
 
@@ -73,7 +75,7 @@ Edit `.env` and change `PORT` to another number (e.g., 3001)
 **Firewall blocking access:**
 Run PowerShell as Administrator:
 ```powershell
-New-NetFirewallRule -DisplayName "Kirby Task Board" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow
+New-NetFirewallRule -DisplayName "KirbyBoard" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow
 ```
 
 **Server not accessible from other devices:**

@@ -311,7 +311,7 @@ app.get('/', (req, res) => {
 
 // Start server - bind to all interfaces for network access
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🐶 Kirby Task Board running on:`);
+    console.log(`🐶 KirbyBoard running on:`);
     console.log(`   Local: http://localhost:${PORT}`);
     console.log(`   Network: http://192.168.1.151:${PORT}`);
     console.log(`   SQLite: ${dbPath}`);

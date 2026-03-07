@@ -1,5 +1,5 @@
 @echo off
-echo Starting Kirby Task Board Server...
+echo Starting KirbyBoard...
 echo.
 echo Access the board at:
 echo   Local: http://localhost:3000
