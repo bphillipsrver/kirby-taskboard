@@ -9,6 +9,7 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY || 'kirby-taskboard-2025-elvis';
+const MAX_ATTACHMENTS = 3;
 
 // SQLite database connection
 const dbPath = process.env.DATABASE_PATH || './tasks.db';
@@ -63,6 +64,7 @@ function initDatabase() {
                 position INTEGER DEFAULT 0,
                 due_date DATE,
                 attachment TEXT,
+                attachments TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
@@ -71,20 +73,56 @@ function initDatabase() {
                 console.error('❌ Database initialization error:', err);
             } else {
                 console.log('✅ Database table initialized');
-                // Log task count
-                db.get('SELECT COUNT(*) as count FROM tasks', (err, row) => {
-                    if (err) {
-                        console.error('❌ Error counting tasks:', err);
-                    } else {
-                        console.log('📊 Tasks in database:', row.count);
-                    }
-                });
+                // Migrate old single attachment to new array format
+                migrateAttachments();
+            }
+        });
+    });
+}
+
+// Migrate single attachment to array format
+function migrateAttachments() {
+    db.all('SELECT id, attachment FROM tasks WHERE attachment IS NOT NULL AND attachments IS NULL', (err, rows) => {
+        if (err) {
+            console.error('❌ Migration error:', err);
+            return;
+        }
+        
+        rows.forEach(row => {
+            const attachments = JSON.stringify([row.attachment]);
+            db.run('UPDATE tasks SET attachments = ? WHERE id = ?', [attachments, row.id], (err) => {
+                if (err) {
+                    console.error(`❌ Failed to migrate task ${row.id}:`, err);
+                }
+            });
+        });
+        
+        if (rows.length > 0) {
+            console.log(`✅ Migrated ${rows.length} tasks to new attachment format`);
+        }
+        
+        // Log task count
+        db.get('SELECT COUNT(*) as count FROM tasks', (err, row) => {
+            if (err) {
+                console.error('❌ Error counting tasks:', err);
+            } else {
+                console.log('📊 Tasks in database:', row.count);
             }
         });
     });
 }
 
 initDatabase();
+
+// Helper to parse attachments from DB
+function parseAttachments(attachmentsJson) {
+    if (!attachmentsJson) return [];
+    try {
+        return JSON.parse(attachmentsJson);
+    } catch (e) {
+        return [];
+    }
+}
 
 // API Key middleware
 const requireAuth = (req, res, next) => {
@@ -135,7 +173,14 @@ app.get('/api/tasks', (req, res) => {
             console.error('Error fetching tasks:', err);
             return res.status(500).json({ error: 'Failed to fetch tasks' });
         }
-        res.json(rows);
+        
+        // Parse attachments for each task
+        const tasks = rows.map(row => ({
+            ...row,
+            attachments: parseAttachments(row.attachments)
+        }));
+        
+        res.json(tasks);
     });
 });
 
@@ -149,13 +194,15 @@ app.get('/api/tasks/:id', (req, res) => {
         if (!row) {
             return res.status(404).json({ error: 'Task not found' });
         }
+        
+        row.attachments = parseAttachments(row.attachments);
         res.json(row);
     });
 });
 
 // CREATE task
 app.post('/api/tasks', requireAuth, (req, res) => {
-    const { title, priority = 'medium', assignee = 'Kirby', notes = '', status = 'todo', due_date = null, attachment = null } = req.body;
+    const { title, priority = 'medium', assignee = 'Kirby', notes = '', status = 'todo', due_date = null, attachments = [] } = req.body;
     
     if (!title) {
         return res.status(400).json({ error: 'Title is required' });
@@ -171,11 +218,12 @@ app.post('/api/tasks', requireAuth, (req, res) => {
         }
         
         const newPosition = row.new_pos;
+        const attachmentsJson = JSON.stringify(attachments.slice(0, MAX_ATTACHMENTS));
         
         db.run(
-            `INSERT INTO tasks (title, priority, assignee, notes, status, position, due_date, attachment) 
+            `INSERT INTO tasks (title, priority, assignee, notes, status, position, due_date, attachments) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [title, priority, assignee, notes, status, newPosition, due_date, attachment],
+            [title, priority, assignee, notes, status, newPosition, due_date, attachmentsJson],
             function(err) {
                 if (err) {
                     console.error('❌ Create error:', err);
@@ -187,6 +235,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
                     if (err) {
                         return res.status(500).json({ error: 'Failed to fetch created task' });
                     }
+                    task.attachments = parseAttachments(task.attachments);
                     console.log(`✅ Task created with ID: ${task.id} at position ${newPosition}`);
                     res.status(201).json(task);
                 });
@@ -197,7 +246,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
 
 // UPDATE task
 app.put('/api/tasks/:id', requireAuth, (req, res) => {
-    const { title, priority, assignee, notes, status, due_date, attachment } = req.body;
+    const { title, priority, assignee, notes, status, due_date, attachments } = req.body;
     const updates = [];
     const values = [];
     
@@ -207,7 +256,10 @@ app.put('/api/tasks/:id', requireAuth, (req, res) => {
     if (notes !== undefined) { updates.push('notes = ?'); values.push(notes); }
     if (status !== undefined) { updates.push('status = ?'); values.push(status); }
     if (due_date !== undefined) { updates.push('due_date = ?'); values.push(due_date); }
-    if (attachment !== undefined) { updates.push('attachment = ?'); values.push(attachment); }
+    if (attachments !== undefined) { 
+        updates.push('attachments = ?'); 
+        values.push(JSON.stringify(attachments.slice(0, MAX_ATTACHMENTS))); 
+    }
     
     if (updates.length === 0) {
         return res.status(400).json({ error: 'No fields to update' });
@@ -233,6 +285,7 @@ app.put('/api/tasks/:id', requireAuth, (req, res) => {
                 if (err) {
                     return res.status(500).json({ error: 'Failed to fetch updated task' });
                 }
+                task.attachments = parseAttachments(task.attachments);
                 res.json(task);
             });
         }
@@ -300,6 +353,7 @@ app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
     res.json({ 
         message: 'File uploaded successfully',
         filename: req.file.filename,
+        originalName: req.file.originalname,
         url: `/uploads/${req.file.filename}`
     });
 });

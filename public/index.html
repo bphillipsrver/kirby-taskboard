@@ -440,6 +440,66 @@
             font-weight: 500;
         }
 
+        .existing-attachment {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: #f0f4ff;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            border: 1px solid #d0d8f0;
+        }
+
+        .existing-attachment a {
+            color: #667eea;
+            text-decoration: none;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .existing-attachment a:hover {
+            text-decoration: underline;
+        }
+
+        .existing-attachment button {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin-left: 10px;
+        }
+
+        .existing-attachment button:hover {
+            background: #e55a5a;
+        }
+
+        .new-attachment-preview {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: #f5f5f5;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            border: 1px dashed #ccc;
+        }
+
+        .new-attachment-preview button {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
         .task-due-date {
             margin-top: 8px;
             font-size: 0.8rem;
@@ -649,12 +709,12 @@
                     <input type="date" id="taskDueDate">
                 </div>
                 <div class="form-group">
-                    <label for="taskAttachment">Attachment (optional)</label>
-                    <input type="file" id="taskAttachment" class="file-input">
-                    <div id="attachmentPreview" class="attachment-preview" style="display: none; margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px;">
-                        <a id="attachmentLink" href="#" target="_blank" style="color: #667eea; text-decoration: none; flex: 1;"></a>
-                        <button type="button" onclick="clearAttachment()" style="margin-left: 10px; background: #ff6b6b; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer;">✕</button>
+                    <label>Attachments (up to 3)</label>
+                    <div id="existingAttachments" style="margin-bottom: 10px;"></div>
+                    <div id="attachmentInputContainer">
+                        <input type="file" id="taskAttachment" class="file-input" onchange="handleFileSelect(this)">
                     </div>
+                    <small id="attachmentLimitMsg" style="color: #888; display: none;">Maximum 3 attachments reached</small>
                 </div>
                 <div class="form-group">
                     <label for="taskNotes">Notes (optional)</label>
@@ -737,10 +797,13 @@
 
     <script>
         const API_BASE_URL = window.location.origin;
+        const MAX_ATTACHMENTS = 3;
         let currentStatus = 'todo';
         let draggedTask = null;
         let editingTaskId = null;
         let apiKey = localStorage.getItem('kirbyApiKey') || 'kirby-taskboard-2025-elvis';
+        let currentAttachments = []; // Track attachments for current task
+        let newAttachments = []; // Track newly uploaded files
 
         // Load tasks on startup
         document.addEventListener('DOMContentLoaded', () => {
@@ -797,21 +860,19 @@
                         document.getElementById('taskDueDate').value = task.due_date || '';
                         document.getElementById('taskNotes').value = task.notes || '';
                         
-                        // Show attachment if exists
-                        if (task.attachment) {
-                            const fileName = task.attachment.split('-').pop();
-                            const linkEl = document.getElementById('attachmentLink');
-                            linkEl.textContent = '📎 ' + fileName;
-                            linkEl.href = API_BASE_URL + task.attachment;
-                            document.getElementById('attachmentPreview').style.display = 'flex';
-                        }
+                        // Load existing attachments
+                        currentAttachments = task.attachments || [];
+                        newAttachments = [];
+                        renderExistingAttachments();
                     })
                     .catch(error => console.error('Error loading task:', error));
             } else {
                 modalTitle.textContent = 'Add New Task';
                 submitBtn.textContent = 'Add Task';
                 document.getElementById('taskForm').reset();
-                clearAttachment();
+                currentAttachments = [];
+                newAttachments = [];
+                renderExistingAttachments();
             }
 
             document.getElementById('taskModal').classList.add('active');
@@ -841,23 +902,85 @@
             closeSettings();
         });
 
-        // File input change handler
-        document.getElementById('taskAttachment').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (file) {
-                const linkEl = document.getElementById('attachmentLink');
-                linkEl.textContent = '📎 ' + file.name;
-                linkEl.href = '#';
-                document.getElementById('attachmentPreview').style.display = 'flex';
+        // Render existing attachments in modal
+        function renderExistingAttachments() {
+            const container = document.getElementById('existingAttachments');
+            container.innerHTML = '';
+            
+            // Show existing attachments
+            currentAttachments.forEach((url, index) => {
+                const fileName = extractFileName(url);
+                const div = document.createElement('div');
+                div.className = 'existing-attachment';
+                div.innerHTML = `
+                    <a href="${API_BASE_URL}${url}" target="_blank">📎 ${escapeHtml(fileName)}</a>
+                    <button type="button" onclick="removeExistingAttachment(${index})">Remove</button>
+                `;
+                container.appendChild(div);
+            });
+            
+            // Show new attachments being added
+            newAttachments.forEach((file, index) => {
+                const div = document.createElement('div');
+                div.className = 'new-attachment-preview';
+                div.innerHTML = `
+                    <span>📎 ${escapeHtml(file.name)} (pending upload)</span>
+                    <button type="button" onclick="removeNewAttachment(${index})">Remove</button>
+                `;
+                container.appendChild(div);
+            });
+            
+            // Update file input visibility
+            const totalAttachments = currentAttachments.length + newAttachments.length;
+            const fileInput = document.getElementById('taskAttachment');
+            const limitMsg = document.getElementById('attachmentLimitMsg');
+            
+            if (totalAttachments >= MAX_ATTACHMENTS) {
+                fileInput.style.display = 'none';
+                limitMsg.style.display = 'block';
+            } else {
+                fileInput.style.display = 'block';
+                limitMsg.style.display = 'none';
             }
-        });
+        }
 
-        function clearAttachment() {
-            document.getElementById('taskAttachment').value = '';
-            const linkEl = document.getElementById('attachmentLink');
-            linkEl.textContent = '';
-            linkEl.href = '#';
-            document.getElementById('attachmentPreview').style.display = 'none';
+        // Extract original filename from URL
+        function extractFileName(url) {
+            if (!url) return '';
+            const parts = url.split('/');
+            const fullName = parts[parts.length - 1];
+            // Remove the timestamp prefix (e.g., "1234567890-123456789-originalname.jpg")
+            const match = fullName.match(/^\d+-\d+-(.+)$/);
+            return match ? match[1] : fullName;
+        }
+
+        // Handle file selection
+        function handleFileSelect(input) {
+            const file = input.files[0];
+            if (!file) return;
+            
+            const totalAttachments = currentAttachments.length + newAttachments.length;
+            if (totalAttachments >= MAX_ATTACHMENTS) {
+                alert(`Maximum ${MAX_ATTACHMENTS} attachments allowed`);
+                input.value = '';
+                return;
+            }
+            
+            newAttachments.push(file);
+            input.value = ''; // Clear input for next selection
+            renderExistingAttachments();
+        }
+
+        // Remove existing attachment
+        function removeExistingAttachment(index) {
+            currentAttachments.splice(index, 1);
+            renderExistingAttachments();
+        }
+
+        // Remove new attachment (not yet uploaded)
+        function removeNewAttachment(index) {
+            newAttachments.splice(index, 1);
+            renderExistingAttachments();
         }
 
         document.getElementById('taskForm').addEventListener('submit', async function(e) {
@@ -874,14 +997,14 @@
             const assignee = document.getElementById('taskAssignee').value;
             const due_date = document.getElementById('taskDueDate').value || null;
             const notes = document.getElementById('taskNotes').value;
-            const fileInput = document.getElementById('taskAttachment');
 
-            let attachment = null;
+            // Start with existing attachments (for edits)
+            let attachments = [...currentAttachments];
 
-            // Upload file if selected
-            if (fileInput.files.length > 0) {
+            // Upload new files
+            for (const file of newAttachments) {
                 const formData = new FormData();
-                formData.append('file', fileInput.files[0]);
+                formData.append('file', file);
 
                 try {
                     const uploadResponse = await fetch(`${API_BASE_URL}/api/upload`, {
@@ -894,12 +1017,15 @@
 
                     if (uploadResponse.ok) {
                         const uploadData = await uploadResponse.json();
-                        attachment = uploadData.url;
+                        attachments.push(uploadData.url);
                     }
                 } catch (error) {
                     console.error('Upload error:', error);
                 }
             }
+
+            // Limit to MAX_ATTACHMENTS
+            attachments = attachments.slice(0, MAX_ATTACHMENTS);
 
             const taskData = {
                 title,
@@ -908,7 +1034,7 @@
                 notes,
                 status: currentStatus,
                 due_date,
-                attachment
+                attachments
             };
 
             try {
@@ -940,7 +1066,8 @@
 
                 await loadTasks();
                 closeModal();
-                clearAttachment();
+                currentAttachments = [];
+                newAttachments = [];
                 showIndicator(editingTaskId ? '✅ Task updated' : '✅ Task created');
             } catch (error) {
                 console.error('Error saving task:', error);
@@ -984,8 +1111,9 @@
 
             // Attachment indicator (condensed view)
             let attachmentHtml = '';
-            if (task.attachment) {
-                attachmentHtml = `<div class="task-attachment-indicator" title="1 attachment">📎 1</div>`;
+            const attachmentCount = task.attachments ? task.attachments.length : 0;
+            if (attachmentCount > 0) {
+                attachmentHtml = `<div class="task-attachment-indicator" title="${attachmentCount} attachment${attachmentCount > 1 ? 's' : ''}">📎 ${attachmentCount}</div>`;
             }
 
             taskElement.innerHTML = `
