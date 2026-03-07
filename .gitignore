@@ -4,6 +4,8 @@
 # Database
 tasks.db
 *.db
+*.db-shm
+*.db-wal
 
 # Node
 node_modules/

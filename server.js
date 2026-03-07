@@ -1,5 +1,5 @@
 const express = require('express');
-const { Pool } = require('pg');
+const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
@@ -10,22 +10,13 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.API_KEY || 'kirby-taskboard-2025-elvis';
 
-// Supabase PostgreSQL connection
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false
-    },
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 30000
-});
-
-// Test database connection
-pool.query('SELECT NOW()', (err, res) => {
+// SQLite database connection
+const dbPath = process.env.DATABASE_PATH || './tasks.db';
+const db = new sqlite3.Database(dbPath, (err) => {
     if (err) {
         console.error('❌ Database connection error:', err);
     } else {
-        console.log('✅ Database connected:', res.rows[0].now);
+        console.log('✅ SQLite database connected:', dbPath);
     }
 });
 
@@ -58,11 +49,12 @@ app.use(express.static('public'));
 app.use('/uploads', express.static(uploadsDir));
 
 // Initialize database table
-async function initDatabase() {
-    try {
-        await pool.query(`
+function initDatabase() {
+    db.serialize(() => {
+        // Create tasks table
+        db.run(`
             CREATE TABLE IF NOT EXISTS tasks (
-                id SERIAL PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 priority TEXT DEFAULT 'medium',
                 assignee TEXT DEFAULT 'Kirby',
@@ -71,27 +63,25 @@ async function initDatabase() {
                 position INTEGER DEFAULT 0,
                 due_date DATE,
                 attachment TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
-        `);
-        
-        // Add position column if it doesn't exist (migration)
-        try {
-            await pool.query('ALTER TABLE tasks ADD COLUMN position INTEGER DEFAULT 0');
-            console.log('✅ Added position column');
-        } catch (err) {
-            // Column already exists
-        }
-        
-        console.log('✅ Database table initialized');
-        
-        // Log task count
-        const result = await pool.query('SELECT COUNT(*) as count FROM tasks');
-        console.log('📊 Tasks in database:', result.rows[0].count);
-    } catch (err) {
-        console.error('❌ Database initialization error:', err);
-    }
+        `, (err) => {
+            if (err) {
+                console.error('❌ Database initialization error:', err);
+            } else {
+                console.log('✅ Database table initialized');
+                // Log task count
+                db.get('SELECT COUNT(*) as count FROM tasks', (err, row) => {
+                    if (err) {
+                        console.error('❌ Error counting tasks:', err);
+                    } else {
+                        console.log('📊 Tasks in database:', row.count);
+                    }
+                });
+            }
+        });
+    });
 }
 
 initDatabase();
@@ -106,65 +96,65 @@ const requireAuth = (req, res, next) => {
 };
 
 // Health check with database diagnostics
-app.get('/api/health', async (req, res) => {
-    try {
-        const result = await pool.query('SELECT COUNT(*) as count FROM tasks');
+app.get('/api/health', (req, res) => {
+    db.get('SELECT COUNT(*) as count FROM tasks', (err, row) => {
+        if (err) {
+            return res.status(500).json({ 
+                status: 'error', 
+                error: err.message 
+            });
+        }
         res.json({ 
             status: 'ok', 
             timestamp: new Date().toISOString(),
             database: {
                 connected: true,
-                taskCount: result.rows[0].count
+                taskCount: row.count,
+                type: 'SQLite'
             }
         });
-    } catch (err) {
-        res.status(500).json({ 
-            status: 'error', 
-            error: err.message 
-        });
-    }
+    });
 });
 
 // GET all tasks
-app.get('/api/tasks', async (req, res) => {
-    try {
-        // Custom sort order: todo -> ready -> inprogress -> done
-        const result = await pool.query(`
-            SELECT * FROM tasks 
-            ORDER BY 
-                CASE status 
-                    WHEN 'todo' THEN 1 
-                    WHEN 'ready' THEN 2 
-                    WHEN 'inprogress' THEN 3 
-                    WHEN 'done' THEN 4 
-                    ELSE 5 
-                END,
-                position ASC, 
-                created_at DESC
-        `);
-        res.json(result.rows);
-    } catch (err) {
-        console.error('Error fetching tasks:', err);
-        res.status(500).json({ error: 'Failed to fetch tasks' });
-    }
+app.get('/api/tasks', (req, res) => {
+    db.all(`
+        SELECT * FROM tasks 
+        ORDER BY 
+            CASE status 
+                WHEN 'todo' THEN 1 
+                WHEN 'ready' THEN 2 
+                WHEN 'inprogress' THEN 3 
+                WHEN 'done' THEN 4 
+                ELSE 5 
+            END,
+            position ASC, 
+            created_at DESC
+    `, (err, rows) => {
+        if (err) {
+            console.error('Error fetching tasks:', err);
+            return res.status(500).json({ error: 'Failed to fetch tasks' });
+        }
+        res.json(rows);
+    });
 });
 
 // GET single task
-app.get('/api/tasks/:id', async (req, res) => {
-    try {
-        const result = await pool.query('SELECT * FROM tasks WHERE id = $1', [req.params.id]);
-        if (result.rows.length === 0) {
+app.get('/api/tasks/:id', (req, res) => {
+    db.get('SELECT * FROM tasks WHERE id = ?', [req.params.id], (err, row) => {
+        if (err) {
+            console.error('Error fetching task:', err);
+            return res.status(500).json({ error: 'Failed to fetch task' });
+        }
+        if (!row) {
             return res.status(404).json({ error: 'Task not found' });
         }
-        res.json(result.rows[0]);
-    } catch (err) {
-        console.error('Error fetching task:', err);
-        res.status(500).json({ error: 'Failed to fetch task' });
-    }
+        res.json(row);
+    });
 });
 
 // CREATE task
-app.post('/api/tasks', requireAuth, async (req, res) => {
+app.post('/api/tasks', requireAuth, (req, res) => {
     const { title, priority = 'medium', assignee = 'Kirby', notes = '', status = 'todo', due_date = null, attachment = null } = req.body;
     
     if (!title) {
@@ -173,86 +163,103 @@ app.post('/api/tasks', requireAuth, async (req, res) => {
     
     console.log(`📝 Creating task: "${title.substring(0, 50)}..."`);
     
-    try {
-        // Get max position for this status to add to end
-        const posResult = await pool.query('SELECT COALESCE(MAX(position), 0) + 1 as new_pos FROM tasks WHERE status = $1', [status]);
-        const newPosition = posResult.rows[0].new_pos;
+    // Get max position for this status to add to end
+    db.get('SELECT COALESCE(MAX(position), 0) + 1 as new_pos FROM tasks WHERE status = ?', [status], (err, row) => {
+        if (err) {
+            console.error('❌ Error getting position:', err);
+            return res.status(500).json({ error: 'Failed to create task' });
+        }
         
-        const result = await pool.query(
+        const newPosition = row.new_pos;
+        
+        db.run(
             `INSERT INTO tasks (title, priority, assignee, notes, status, position, due_date, attachment) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-             RETURNING *`,
-            [title, priority, assignee, notes, status, newPosition, due_date, attachment]
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [title, priority, assignee, notes, status, newPosition, due_date, attachment],
+            function(err) {
+                if (err) {
+                    console.error('❌ Create error:', err);
+                    return res.status(500).json({ error: 'Failed to create task' });
+                }
+                
+                const newId = this.lastID;
+                db.get('SELECT * FROM tasks WHERE id = ?', [newId], (err, task) => {
+                    if (err) {
+                        return res.status(500).json({ error: 'Failed to fetch created task' });
+                    }
+                    console.log(`✅ Task created with ID: ${task.id} at position ${newPosition}`);
+                    res.status(201).json(task);
+                });
+            }
         );
-        
-        console.log(`✅ Task created with ID: ${result.rows[0].id} at position ${newPosition}`);
-        res.status(201).json(result.rows[0]);
-    } catch (err) {
-        console.error('❌ Create error:', err);
-        res.status(500).json({ error: 'Failed to create task' });
-    }
+    });
 });
 
 // UPDATE task
-app.put('/api/tasks/:id', requireAuth, async (req, res) => {
+app.put('/api/tasks/:id', requireAuth, (req, res) => {
     const { title, priority, assignee, notes, status, due_date, attachment } = req.body;
     const updates = [];
     const values = [];
-    let paramCount = 1;
     
-    if (title !== undefined) { updates.push(`title = $${paramCount++}`); values.push(title); }
-    if (priority !== undefined) { updates.push(`priority = $${paramCount++}`); values.push(priority); }
-    if (assignee !== undefined) { updates.push(`assignee = $${paramCount++}`); values.push(assignee); }
-    if (notes !== undefined) { updates.push(`notes = $${paramCount++}`); values.push(notes); }
-    if (status !== undefined) { updates.push(`status = $${paramCount++}`); values.push(status); }
-    if (due_date !== undefined) { updates.push(`due_date = $${paramCount++}`); values.push(due_date); }
-    if (attachment !== undefined) { updates.push(`attachment = $${paramCount++}`); values.push(attachment); }
+    if (title !== undefined) { updates.push('title = ?'); values.push(title); }
+    if (priority !== undefined) { updates.push('priority = ?'); values.push(priority); }
+    if (assignee !== undefined) { updates.push('assignee = ?'); values.push(assignee); }
+    if (notes !== undefined) { updates.push('notes = ?'); values.push(notes); }
+    if (status !== undefined) { updates.push('status = ?'); values.push(status); }
+    if (due_date !== undefined) { updates.push('due_date = ?'); values.push(due_date); }
+    if (attachment !== undefined) { updates.push('attachment = ?'); values.push(attachment); }
     
     if (updates.length === 0) {
         return res.status(400).json({ error: 'No fields to update' });
     }
     
-    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+    updates.push('updated_at = CURRENT_TIMESTAMP');
     values.push(req.params.id);
     
-    try {
-        const result = await pool.query(
-            `UPDATE tasks SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
-            values
-        );
-        
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Task not found' });
+    db.run(
+        `UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`,
+        values,
+        function(err) {
+            if (err) {
+                console.error('Error updating task:', err);
+                return res.status(500).json({ error: 'Failed to update task' });
+            }
+            
+            if (this.changes === 0) {
+                return res.status(404).json({ error: 'Task not found' });
+            }
+            
+            db.get('SELECT * FROM tasks WHERE id = ?', [req.params.id], (err, task) => {
+                if (err) {
+                    return res.status(500).json({ error: 'Failed to fetch updated task' });
+                }
+                res.json(task);
+            });
         }
-        
-        res.json(result.rows[0]);
-    } catch (err) {
-        console.error('Error updating task:', err);
-        res.status(500).json({ error: 'Failed to update task' });
-    }
+    );
 });
 
 // DELETE task
-app.delete('/api/tasks/:id', requireAuth, async (req, res) => {
+app.delete('/api/tasks/:id', requireAuth, (req, res) => {
     console.log(`🗑️ Deleting task ID: ${req.params.id}`);
     
-    try {
-        const result = await pool.query('DELETE FROM tasks WHERE id = $1 RETURNING *', [req.params.id]);
+    db.run('DELETE FROM tasks WHERE id = ?', [req.params.id], function(err) {
+        if (err) {
+            console.error('❌ Delete error:', err);
+            return res.status(500).json({ error: 'Failed to delete task' });
+        }
         
-        if (result.rows.length === 0) {
+        if (this.changes === 0) {
             return res.status(404).json({ error: 'Task not found' });
         }
         
         console.log(`✅ Task ${req.params.id} deleted`);
         res.json({ message: 'Task deleted successfully' });
-    } catch (err) {
-        console.error('❌ Delete error:', err);
-        res.status(500).json({ error: 'Failed to delete task' });
-    }
+    });
 });
 
 // REORDER tasks within a status
-app.post('/api/tasks/reorder', requireAuth, async (req, res) => {
+app.post('/api/tasks/reorder', requireAuth, (req, res) => {
     const { tasks } = req.body;
     
     if (!Array.isArray(tasks) || tasks.length === 0) {
@@ -261,27 +268,27 @@ app.post('/api/tasks/reorder', requireAuth, async (req, res) => {
     
     console.log(`🔄 Reordering ${tasks.length} tasks`);
     
-    try {
-        // Update positions in a transaction
-        await pool.query('BEGIN');
+    const stmt = db.prepare('UPDATE tasks SET position = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+    
+    db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
         
-        for (let i = 0; i < tasks.length; i++) {
-            const { id, position, status } = tasks[i];
-            await pool.query(
-                'UPDATE tasks SET position = $1, status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
-                [position, status, id]
-            );
+        for (const task of tasks) {
+            const { id, position, status } = task;
+            stmt.run(position, status, id);
         }
         
-        await pool.query('COMMIT');
+        stmt.finalize();
         
-        console.log('✅ Tasks reordered successfully');
-        res.json({ message: 'Tasks reordered successfully', count: tasks.length });
-    } catch (err) {
-        await pool.query('ROLLBACK');
-        console.error('❌ Reorder error:', err);
-        res.status(500).json({ error: 'Failed to reorder tasks' });
-    }
+        db.run('COMMIT', (err) => {
+            if (err) {
+                console.error('❌ Reorder error:', err);
+                return res.status(500).json({ error: 'Failed to reorder tasks' });
+            }
+            console.log('✅ Tasks reordered successfully');
+            res.json({ message: 'Tasks reordered successfully', count: tasks.length });
+        });
+    });
 });
 
 // File upload endpoint
@@ -302,16 +309,23 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`🐶 Kirby Task Board running on port ${PORT}`);
-    console.log(`📊 Database: Supabase PostgreSQL`);
+// Start server - bind to all interfaces for network access
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🐶 Kirby Task Board running on:`);
+    console.log(`   Local: http://localhost:${PORT}`);
+    console.log(`   Network: http://192.168.1.151:${PORT}`);
+    console.log(`   SQLite: ${dbPath}`);
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-    pool.end(() => {
-        console.log('Database connection closed');
-        process.exit(0);
-    });
+    console.log('Closing database connection...');
+    db.close();
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    console.log('Closing database connection...');
+    db.close();
+    process.exit(0);
 });
